@@ -1,52 +1,86 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { ComposedChart, Bar, ReferenceLine, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { ValueType, NameType } from 'recharts/types/component/DefaultTooltipContent';
 
-const BenchmarkTrials = () => {
-    const [mean] = useState(100);
-    const [stdDev, setStdDev] = useState(10);
-    const [tailProbability, setTailProbability] = useState(0.01);  // renamed from outlierProb
-    const [tailShift, setTailShift] = useState(3);  // renamed from outlierMagnitude
-    const [samplesPerTrial, setSamplesPerTrial] = useState(20);  // renamed from numReplicas
-    const [showCumulative, setShowCumulative] = useState(false);
+interface Bucket {
+    start: number;
+    end: number;
+    expected: number;
+    observed: number;
+    cumulative: number;
+    cumulativeObserved?: number;
+    value: number;
+}
 
-    const [trials, setTrials] = useState([]);  // Store multiple trials
-    const [currentTrial, setCurrentTrial] = useState(null);
-    const [maxObservedValue, setMaxObservedValue] = useState(null);
-    const [isRunning, setIsRunning] = useState(false);
+interface Trial {
+    buckets: Bucket[];
+    maxValue: number;
+    timestamp: number;
+    sampleMean: number;
+}
 
+interface SigmaLine {
+    value: number;
+    label: string;
+}
+
+interface ChartDataItem {
+    value: number;
+    expected: number;
+    observed: number;
+    expectedCumulative?: number;
+    observedCumulative?: number;
+    range: string;
+    sigma: string;
+}
+
+const BenchmarkTrials: React.FC = () => {
+    const [mean] = useState<number>(100);
+    const [stdDev, setStdDev] = useState<number>(10);
+    const [tailProbability] = useState<number>(0.01);
+    const [maxObservedValue, setMaxObservedValue] = useState<number | null>(null);
+    const [tailShift] = useState<number>(3);
+    const [samplesPerTrial, setSamplesPerTrial] = useState<number>(20);
+    const [showCumulative] = useState<boolean>(false);
+
+    const [trials, setTrials] = useState<Trial[]>([]);
+    const [currentTrial, setCurrentTrial] = useState<Trial | null>(null);
+    const [isRunning, setIsRunning] = useState<boolean>(false);
+
+
+    // Error function implementation
+    const erf = (x: number): number => {
+        const sign = Math.sign(x);
+        x = Math.abs(x);
+        const t = 1.0 / (1.0 + 0.3275911 * x);
+        const y = 1.0 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+        return sign * y;
+    };
 
     const { domain, buckets, bucketSize, sigmaLines } = useMemo(() => {
         const minX = mean - 4 * stdDev;
         const maxX = mean + (tailShift + 2) * stdDev;
-        const domain = [minX, maxX];
+        const domain: [number, number] = [minX, maxX];
         const numBuckets = 30;
         const bucketSize = (maxX - minX) / numBuckets;
 
-        // Calculate the expected distribution for each bucket
-        const buckets = Array(numBuckets).fill(0).map((_, i) => {
+        const buckets: Bucket[] = Array(numBuckets).fill(0).map((_, i) => {
             const start = minX + i * bucketSize;
             const end = minX + (i + 1) * bucketSize;
             const centerValue = (start + end) / 2;
 
-            // Calculate the expected probability for the main distribution
             const mainProb = (1 - tailProbability) * (
                 (erf((end - mean) / (Math.sqrt(2) * stdDev)) -
                     erf((start - mean) / (Math.sqrt(2) * stdDev))) / 2
             );
 
-            // Calculate the expected probability for the tail distribution
             const tailProb = tailProbability * (
                 (erf((end - (mean + tailShift * stdDev)) / (Math.sqrt(2) * stdDev)) -
                     erf((start - (mean + tailShift * stdDev)) / (Math.sqrt(2) * stdDev))) / 2
             );
 
-            // Total probability for this bucket
             const totalProb = mainProb + tailProb;
-
-            // Convert probability to expected count based on samplesPerTrial
             const expected = totalProb * samplesPerTrial;
-
-            console.log(`Bucket ${i}: [${start.toFixed(2)}, ${end.toFixed(2)}] -> Expected: ${expected.toFixed(3)}`);
 
             return {
                 start,
@@ -58,39 +92,22 @@ const BenchmarkTrials = () => {
             };
         });
 
-        // Add error function if it doesn't exist
-        function erf(x) {
-            const sign = Math.sign(x);
-            x = Math.abs(x);
-            const t = 1.0 / (1.0 + 0.3275911 * x);
-            const y = 1.0 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
-            return sign * y;
-        }
-
-        console.log('Domain:', domain);
-        console.log('Total expected samples:', buckets.reduce((sum, b) => sum + b.expected, 0));
-
-        const sigmaLines = [-3, -2, -1, 1, 2, 3].map(sigma => ({
+        const sigmaLines: SigmaLine[] = [-3, -2, -1, 1, 2, 3].map(sigma => ({
             value: mean + sigma * stdDev,
             label: `${sigma}σ`
         }));
 
         return { domain, buckets, bucketSize, sigmaLines };
-    }, [mean, stdDev, tailShift, tailProbability, samplesPerTrial]);  // Add dependencies
+    }, [mean, stdDev, tailShift, tailProbability, samplesPerTrial]);
 
-    // Calculate the probability of detecting a rare event given sample size and number of trials
-    const calculateRareEventDetectionPower = (samplesPerTrial, numTrials) => {
-        // Probability of NOT seeing a 1-in-100 event in one sample
+    const calculateRareEventDetectionPower = (samplesPerTrial: number, numTrials: number): string => {
         const probMiss = 0.99;
-        // Probability of NOT seeing it in all samples across all trials
         const probMissAll = Math.pow(probMiss, samplesPerTrial * numTrials);
-        // Therefore, probability of seeing it at least once
         const detectionPower = (1 - probMissAll) * 100;
         return detectionPower.toFixed(1);
     };
 
-    // Generate a single sample
-    const generateSample = () => {
+    const generateSample = (): number => {
         const u1 = Math.random();
         const u2 = Math.random();
         if (u1 < tailProbability) {
@@ -102,8 +119,7 @@ const BenchmarkTrials = () => {
         }
     };
 
-    // Run a single trial
-    const runTrial = () => {
+    const runTrial = (): void => {
         if (!buckets) return;
         setIsRunning(true);
 
@@ -122,7 +138,7 @@ const BenchmarkTrials = () => {
             }
         });
 
-        const trial = {
+        const trial: Trial = {
             buckets: newBuckets,
             maxValue,
             timestamp: Date.now(),
@@ -131,38 +147,45 @@ const BenchmarkTrials = () => {
 
         setCurrentTrial(trial);
         setMaxObservedValue(maxValue);
-        setTrials(prev => [...prev.slice(-4), trial]); // Keep last 5 trials
+        setTrials(prev => [...prev.slice(-4), trial]);
 
         setTimeout(() => setIsRunning(false), 500);
     };
 
-    const reset = () => {
+    const reset = (): void => {
         setCurrentTrial(null);
         setMaxObservedValue(null);
         setTrials([]);
     };
 
-    const chartData = useMemo(() => {
-        const data = (currentTrial?.buckets || buckets).map(bucket => {
-            const item = {
-                value: (bucket.start + bucket.end) / 2,
-                expected: bucket.expected || 0,
-                observed: bucket.observed || 0,
-                expectedCumulative: showCumulative ? bucket.cumulative : undefined,
-                observedCumulative: showCumulative && bucket.cumulativeObserved ? bucket.cumulativeObserved : undefined,
-                range: `${bucket.start.toFixed(1)} - ${bucket.end.toFixed(1)}`,
-                sigma: ((bucket.value - mean) / stdDev).toFixed(2)
-            };
-            return item;
-        });
+    const chartData = useMemo((): ChartDataItem[] => {
+        const data = (currentTrial?.buckets || buckets).map(bucket => ({
+            value: (bucket.start + bucket.end) / 2,
+            expected: bucket.expected || 0,
+            observed: bucket.observed || 0,
+            expectedCumulative: showCumulative ? bucket.cumulative : undefined,
+            observedCumulative: showCumulative && bucket.cumulativeObserved ? bucket.cumulativeObserved : undefined,
+            range: `${bucket.start.toFixed(1)} - ${bucket.end.toFixed(1)}`,
+            sigma: ((bucket.value - mean) / stdDev).toFixed(2)
+        }));
 
         return data;
     }, [currentTrial, buckets, showCumulative, mean, stdDev]);
 
-    // Log whenever buckets are updated
-    useEffect(() => {
-        console.log('Buckets updated:', buckets);
-    }, [buckets]);
+    const formatTooltip = (value: ValueType, name: NameType): [number | string, string] => {
+        if (name === 'expected' || name === 'expectedCumulative') {
+            const numValue = typeof value === 'number' ? value.toFixed(2) : value;
+            return [numValue, showCumulative ? 'Expected Cumulative' : 'Expected Distribution'];
+        }
+        const formattedValue = typeof value === 'number' ? value : 0;
+        return [formattedValue, showCumulative ? 'Observed Cumulative' : 'Observed Samples'];
+    };
+
+    const formatTooltipLabel = (label: any, payload: Array<{ payload: ChartDataItem }>): string => {
+        const item = payload[0]?.payload;
+        if (!item) return '';
+        return `Range: ${item.range}\nStandard Deviations from Mean: ${item.sigma}σ`;
+    };
 
     return (
         <div className="w-full p-6 bg-white rounded-lg shadow">
@@ -251,18 +274,9 @@ const BenchmarkTrials = () => {
                                     offset: 10
                                 }}
                             />
-                            <Tooltip
-                                formatter={(value, name, entry) => {
-                                    if (name === 'expected' || name === 'expectedCumulative') {
-                                        return [value.toFixed(2), showCumulative ? 'Expected Cumulative' : 'Expected Distribution'];
-                                    }
-                                    return [value, showCumulative ? 'Observed Cumulative' : 'Observed Samples'];
-                                }}
-                                labelFormatter={(_, data) => {
-                                    const item = data[0]?.payload;
-                                    if (!item) return '';
-                                    return `Range: ${item.range}\nStandard Deviations from Mean: ${item.sigma}σ`;
-                                }}
+                            <Tooltip<ValueType, NameType>
+                                formatter={formatTooltip}
+                                labelFormatter={formatTooltipLabel}
                             />
                             <Legend />
 
@@ -289,7 +303,7 @@ const BenchmarkTrials = () => {
                                     stroke="#666"
                                     strokeDasharray="3 3"
                                     label={line.label}
-                                    labelPosition="top"
+                                    position="start"
                                 />
                             ))}
                         </ComposedChart>
@@ -316,7 +330,7 @@ const BenchmarkTrials = () => {
                                     <div>
                                         <h4 className="font-medium">Recent Trial Results</h4>
                                         <div className="grid grid-cols-2 gap-2 text-sm">
-                                            {trials.map((trial, i) => (
+                                            {trials.map((trial, _i) => (
                                                 <div key={trial.timestamp} className="p-2 bg-white rounded shadow-sm">
                                                     <div>Max: {trial.maxValue.toFixed(2)}</div>
                                                     <div className="text-xs text-gray-500">
