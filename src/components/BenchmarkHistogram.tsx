@@ -180,12 +180,12 @@ const BenchmarkTrials: React.FC = () => {
 
     const formatTooltip = (value: ValueType, name: NameType): [number | string, string] => {
         if (name === 'expected') {
-            return [typeof value === 'number' ? value.toFixed(2) : value, 'Expected Distribution'];
+            return [typeof value === 'number' ? value.toFixed(2) : 0, 'Expected Distribution'];
         }
         return [typeof value === 'number' ? value : 0, 'Observed Samples'];
     };
 
-    const formatTooltipLabel = (label: any, payload: Array<{ payload: ChartDataItem }>): string => {
+    const formatTooltipLabel = (_label: any, payload: Array<{ payload: ChartDataItem }>): string => {
         const item = payload[0]?.payload;
         if (!item) return '';
         return `Range: ${item.range}\nStandard Deviations from Mean: ${item.sigma}σ`;
