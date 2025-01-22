@@ -7,12 +7,11 @@ interface Bucket {
     end: number;
     expected: number;
     observed: number;
-    cumulative: number;
-    cumulativeObserved?: number;
     value: number;
 }
 
 interface Trial {
+    id: string;
     buckets: Bucket[];
     maxValue: number;
     timestamp: number;
@@ -28,25 +27,45 @@ interface ChartDataItem {
     value: number;
     expected: number;
     observed: number;
-    expectedCumulative?: number;
-    observedCumulative?: number;
     range: string;
     sigma: string;
 }
+
+// Simple xorshift for deterministic random numbers
+const xorshift = (seed: number) => {
+    let state = seed;
+    return () => {
+        state ^= state << 13;
+        state ^= state >> 17;
+        state ^= state << 5;
+        return (state >>> 0) / 4294967296;
+    };
+};
+
+const generateSeedFromId = (id: string): number => {
+    let hash = 0;
+    for (let i = 0; i < id.length; i++) {
+        const char = id.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash;
+    }
+    return Math.abs(hash);
+};
 
 const BenchmarkTrials: React.FC = () => {
     const [mean] = useState<number>(100);
     const [stdDev, setStdDev] = useState<number>(10);
     const [tailProbability] = useState<number>(0.01);
-    const [maxObservedValue, setMaxObservedValue] = useState<number | null>(null);
     const [tailShift] = useState<number>(3);
     const [samplesPerTrial, setSamplesPerTrial] = useState<number>(20);
-    const [showCumulative] = useState<boolean>(false);
-
     const [trials, setTrials] = useState<Trial[]>([]);
-    const [currentTrial, setCurrentTrial] = useState<Trial | null>(null);
+    const [selectedTrialId, setSelectedTrialId] = useState<string | null>(null);
     const [isRunning, setIsRunning] = useState<boolean>(false);
 
+    const currentTrial = useMemo(() =>
+        trials.find(t => t.id === selectedTrialId) || trials[trials.length - 1],
+        [trials, selectedTrialId]
+    );
 
     // Error function implementation
     const erf = (x: number): number => {
@@ -87,7 +106,6 @@ const BenchmarkTrials: React.FC = () => {
                 end,
                 expected,
                 observed: 0,
-                cumulative: 0,
                 value: centerValue
             };
         });
@@ -100,21 +118,14 @@ const BenchmarkTrials: React.FC = () => {
         return { domain, buckets, bucketSize, sigmaLines };
     }, [mean, stdDev, tailShift, tailProbability, samplesPerTrial]);
 
-    const calculateRareEventDetectionPower = (samplesPerTrial: number, numTrials: number): string => {
-        const probMiss = 0.99;
-        const probMissAll = Math.pow(probMiss, samplesPerTrial * numTrials);
-        const detectionPower = (1 - probMissAll) * 100;
-        return detectionPower.toFixed(1);
-    };
-
-    const generateSample = (): number => {
-        const u1 = Math.random();
-        const u2 = Math.random();
+    const generateSample = (rng: () => number): number => {
+        const u1 = rng();
+        const u2 = rng();
         if (u1 < tailProbability) {
-            const z = Math.sqrt(-2 * Math.log(u2)) * Math.cos(2 * Math.PI * Math.random());
+            const z = Math.sqrt(-2 * Math.log(u2)) * Math.cos(2 * Math.PI * rng());
             return mean + tailShift * stdDev + z * stdDev;
         } else {
-            const z = Math.sqrt(-2 * Math.log(u2)) * Math.cos(2 * Math.PI * Math.random());
+            const z = Math.sqrt(-2 * Math.log(u2)) * Math.cos(2 * Math.PI * rng());
             return mean + z * stdDev;
         }
     };
@@ -123,62 +134,55 @@ const BenchmarkTrials: React.FC = () => {
         if (!buckets) return;
         setIsRunning(true);
 
+        const trialId = Math.random().toString(36).substring(2, 15);
+        const rng = xorshift(generateSeedFromId(trialId));
+
         const newBuckets = buckets.map(bucket => ({ ...bucket, observed: 0 }));
-        const samples = Array(samplesPerTrial).fill(0).map(generateSample);
+        const samples = Array(samplesPerTrial).fill(0).map(() => generateSample(rng));
         const maxValue = Math.max(...samples);
         const sampleMean = samples.reduce((a, b) => a + b, 0) / samples.length;
 
-        let cumulativeCount = 0;
         samples.forEach(value => {
             const bucketIndex = Math.floor((value - domain[0]) / bucketSize);
             if (bucketIndex >= 0 && bucketIndex < newBuckets.length) {
                 newBuckets[bucketIndex].observed++;
-                cumulativeCount += 1;
-                newBuckets[bucketIndex].cumulativeObserved = cumulativeCount;
             }
         });
 
         const trial: Trial = {
+            id: trialId,
             buckets: newBuckets,
             maxValue,
             timestamp: Date.now(),
             sampleMean
         };
 
-        setCurrentTrial(trial);
-        setMaxObservedValue(maxValue);
         setTrials(prev => [...prev.slice(-4), trial]);
+        setSelectedTrialId(trialId);
 
         setTimeout(() => setIsRunning(false), 500);
     };
 
     const reset = (): void => {
-        setCurrentTrial(null);
-        setMaxObservedValue(null);
         setTrials([]);
+        setSelectedTrialId(null);
     };
 
     const chartData = useMemo((): ChartDataItem[] => {
-        const data = (currentTrial?.buckets || buckets).map(bucket => ({
+        return (currentTrial?.buckets || buckets).map(bucket => ({
             value: (bucket.start + bucket.end) / 2,
             expected: bucket.expected || 0,
             observed: bucket.observed || 0,
-            expectedCumulative: showCumulative ? bucket.cumulative : undefined,
-            observedCumulative: showCumulative && bucket.cumulativeObserved ? bucket.cumulativeObserved : undefined,
             range: `${bucket.start.toFixed(1)} - ${bucket.end.toFixed(1)}`,
             sigma: ((bucket.value - mean) / stdDev).toFixed(2)
         }));
-
-        return data;
-    }, [currentTrial, buckets, showCumulative, mean, stdDev]);
+    }, [currentTrial, buckets, mean, stdDev]);
 
     const formatTooltip = (value: ValueType, name: NameType): [number | string, string] => {
-        if (name === 'expected' || name === 'expectedCumulative') {
-            const numValue = typeof value === 'number' ? value.toFixed(2) : value;
-            return [numValue, showCumulative ? 'Expected Cumulative' : 'Expected Distribution'];
+        if (name === 'expected') {
+            return [typeof value === 'number' ? value.toFixed(2) : value, 'Expected Distribution'];
         }
-        const formattedValue = typeof value === 'number' ? value : 0;
-        return [formattedValue, showCumulative ? 'Observed Cumulative' : 'Observed Samples'];
+        return [typeof value === 'number' ? value : 0, 'Observed Samples'];
     };
 
     const formatTooltipLabel = (label: any, payload: Array<{ payload: ChartDataItem }>): string => {
@@ -268,7 +272,7 @@ const BenchmarkTrials: React.FC = () => {
                             />
                             <YAxis
                                 label={{
-                                    value: showCumulative ? 'Cumulative Count' : 'Count',
+                                    value: 'Count',
                                     angle: -90,
                                     position: 'insideLeft',
                                     offset: 10
@@ -318,25 +322,33 @@ const BenchmarkTrials: React.FC = () => {
                                 <div>
                                     <h4 className="font-medium">Current Trial Statistics</h4>
                                     <p className="text-sm">
+                                        Trial ID: <span className="font-mono">{currentTrial.id}</span>
+                                        <br />
                                         Maximum Value: <span className="font-bold">{currentTrial.maxValue.toFixed(2)}</span>
                                         <br />
                                         Sample Mean: <span>{currentTrial.sampleMean.toFixed(2)}</span>
-                                        <br />
-                                        Detection Power: {calculateRareEventDetectionPower(samplesPerTrial, trials.length)}% chance of seeing a 1-in-100 event
                                     </p>
                                 </div>
 
                                 {trials.length > 0 && (
                                     <div>
-                                        <h4 className="font-medium">Recent Trial Results</h4>
+                                        <h4 className="font-medium">Recent Trials</h4>
                                         <div className="grid grid-cols-2 gap-2 text-sm">
-                                            {trials.map((trial, _i) => (
-                                                <div key={trial.timestamp} className="p-2 bg-white rounded shadow-sm">
+                                            {trials.map((trial) => (
+                                                <button
+                                                    key={trial.id}
+                                                    onClick={() => setSelectedTrialId(trial.id)}
+                                                    className={`p-2 text-left rounded shadow-sm transition-colors ${trial.id === selectedTrialId
+                                                        ? 'bg-blue-100 border-2 border-blue-500'
+                                                        : 'bg-white hover:bg-gray-50'
+                                                        }`}
+                                                >
+                                                    <div className="font-mono text-xs truncate">ID: {trial.id}</div>
                                                     <div>Max: {trial.maxValue.toFixed(2)}</div>
                                                     <div className="text-xs text-gray-500">
                                                         Mean: {trial.sampleMean.toFixed(2)}
                                                     </div>
-                                                </div>
+                                                </button>
                                             ))}
                                         </div>
                                     </div>
@@ -346,10 +358,11 @@ const BenchmarkTrials: React.FC = () => {
                             <div className="text-sm text-gray-600 mt-2">
                                 <p>Understanding the Results:</p>
                                 <ul className="list-disc pl-5 space-y-1">
-                                    <li>Each trial represents an independent set of {samplesPerTrial} samples</li>
+                                    <li>Each trial is independent and reproducible using its unique ID</li>
+                                    <li>Click on any previous trial to explore its distribution</li>
                                     <li>The purple bars show the expected distribution of values</li>
-                                    <li>Green bars show actual samples from the current trial</li>
-                                    <li>Larger sample sizes increase the chance of detecting rare performance events</li>
+                                    <li>Green bars show actual samples from the selected trial</li>
+                                    <li>Reference lines indicate standard deviation boundaries</li>
                                 </ul>
                             </div>
                         </div>
