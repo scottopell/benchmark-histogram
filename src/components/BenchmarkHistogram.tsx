@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { ComposedChart, Bar, ReferenceLine, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { ComposedChart, Bar, Scatter, ReferenceLine, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { ValueType, NameType } from 'recharts/types/component/DefaultTooltipContent';
 import { generateId } from "../id";
 
@@ -32,7 +32,13 @@ interface ChartDataItem {
     sigma: string;
 }
 
-// Simple xorshift for deterministic random numbers
+interface MaxValuePoint {
+    x: number;
+    y: number;
+    opacity: number;
+    trialId: string;
+}
+
 const xorshift = (seed: number): () => number => {
     let state = seed;
     return () => {
@@ -58,7 +64,6 @@ const generateSeedFromId = (id: string): number => {
     return Math.abs(hash);
 };
 
-// Error function implementation
 const erf = (x: number): number => {
     const sign = Math.sign(x);
     x = Math.abs(x);
@@ -216,7 +221,7 @@ const BenchmarkTrials: React.FC = () => {
             sampleMean
         };
 
-        setTrials(prev => [...prev.slice(-4), trial]);
+        setTrials(prev => [...prev, trial]);
         setSelectedTrialId(trialId);
 
         setTimeout(() => setIsRunning(false), 500);
@@ -241,6 +246,15 @@ const BenchmarkTrials: React.FC = () => {
         [mean, stdDev]
     );
 
+    const maxValuePoints = useMemo((): MaxValuePoint[] => {
+        return trials.map((trial, idx) => ({
+            x: trial.maxValue,
+            y: 0,
+            opacity: 0.3 + (0.7 * (idx / Math.max(1, trials.length - 1))),
+            trialId: trial.id
+        }));
+    }, [trials]);
+
     const chartData = useMemo((): ChartDataItem[] => {
         return (currentTrial?.buckets || buckets).map(bucket => ({
             value: (bucket.start + bucket.end) / 2,
@@ -254,6 +268,9 @@ const BenchmarkTrials: React.FC = () => {
     const formatTooltip = (value: ValueType, name: NameType): [number | string, string] => {
         if (name === 'expected') {
             return [typeof value === 'number' ? value.toFixed(2) : 0, 'Expected Distribution'];
+        }
+        if (name === 'maxValues') {
+            return [typeof value === 'number' ? value.toFixed(2) : 0, 'Trial Maximum'];
         }
         return [typeof value === 'number' ? value : 0, 'Observed Samples'];
     };
@@ -353,7 +370,6 @@ const BenchmarkTrials: React.FC = () => {
                             />
                             <Tooltip<ValueType, NameType>
                                 formatter={formatTooltip}
-                                // @ts-ignore I can't be bothered
                                 labelFormatter={formatTooltipLabel}
                             />
                             <Legend />
@@ -373,6 +389,27 @@ const BenchmarkTrials: React.FC = () => {
                                     name="observed"
                                 />
                             )}
+
+                            {/* Debug logging */}
+                            {console.log('Max Value Points:', maxValuePoints)}
+
+                            {/* Render max value markers using ReferenceLines */}
+                            {maxValuePoints.map((point) => (
+                                <ReferenceLine
+                                    key={point.trialId}
+                                    x={point.x}
+                                    stroke="#ff4444"
+                                    strokeWidth={2}
+                                    opacity={point.opacity}
+                                    label={{
+                                        value: '×',
+                                        position: 'top',
+                                        fill: '#ff4444',
+                                        fontSize: 16,
+                                        opacity: point.opacity
+                                    }}
+                                />
+                            ))}
 
                             {sigmaLines.map(line => (
                                 <ReferenceLine
@@ -436,6 +473,7 @@ const BenchmarkTrials: React.FC = () => {
                                     <li>Click on any previous trial to explore its distribution</li>
                                     <li>The purple bars show the expected distribution of values</li>
                                     <li>Green bars show actual samples from the selected trial</li>
+                                    <li>Red crosshairs mark maximum values from all trials (opacity indicates recency)</li>
                                     <li>Reference lines indicate standard deviation boundaries</li>
                                 </ul>
                             </div>
