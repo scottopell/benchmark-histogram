@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { ComposedChart, Bar, ReferenceLine, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { ValueType, NameType } from 'recharts/types/component/DefaultTooltipContent';
+import { generateId } from "../id";
 
 interface Bucket {
     start: number;
@@ -32,7 +33,7 @@ interface ChartDataItem {
 }
 
 // Simple xorshift for deterministic random numbers
-const xorshift = (seed: number) => {
+const xorshift = (seed: number): () => number => {
     let state = seed;
     return () => {
         state ^= state << 13;
@@ -40,6 +41,11 @@ const xorshift = (seed: number) => {
         state ^= state << 5;
         return (state >>> 0) / 4294967296;
     };
+};
+
+const generateTrialId = (): string => {
+    let id = generateId();
+    return id;
 };
 
 const generateSeedFromId = (id: string): number => {
@@ -52,93 +58,136 @@ const generateSeedFromId = (id: string): number => {
     return Math.abs(hash);
 };
 
+// Error function implementation
+const erf = (x: number): number => {
+    const sign = Math.sign(x);
+    x = Math.abs(x);
+    const t = 1.0 / (1.0 + 0.3275911 * x);
+    const y = 1.0 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+    return sign * y;
+};
+
+const calculateBucketsAndDomain = (mean: number, stdDev: number, tailShift: number,
+    tailProbability: number, samplesPerTrial: number) => {
+    const minX = mean - 4 * stdDev;
+    const maxX = mean + (tailShift + 2) * stdDev;
+    const domain: [number, number] = [minX, maxX];
+    const numBuckets = 30;
+    const bucketSize = (maxX - minX) / numBuckets;
+
+    const buckets: Bucket[] = Array(numBuckets).fill(0).map((_, i) => {
+        const start = minX + i * bucketSize;
+        const end = minX + (i + 1) * bucketSize;
+        const centerValue = (start + end) / 2;
+
+        const mainProb = (1 - tailProbability) * (
+            (erf((end - mean) / (Math.sqrt(2) * stdDev)) -
+                erf((start - mean) / (Math.sqrt(2) * stdDev))) / 2
+        );
+
+        const tailProb = tailProbability * (
+            (erf((end - (mean + tailShift * stdDev)) / (Math.sqrt(2) * stdDev)) -
+                erf((start - (mean + tailShift * stdDev)) / (Math.sqrt(2) * stdDev))) / 2
+        );
+
+        const totalProb = mainProb + tailProb;
+        const expected = totalProb * samplesPerTrial;
+
+        return {
+            start,
+            end,
+            expected,
+            observed: 0,
+            value: centerValue
+        };
+    });
+
+    return { domain, buckets, bucketSize };
+};
+
+const generateSample = (
+    rng: () => number,
+    mean: number,
+    stdDev: number,
+    tailShift: number,
+    tailProbability: number
+): number => {
+    const u1 = rng();
+    const u2 = rng();
+    if (u1 < tailProbability) {
+        const z = Math.sqrt(-2 * Math.log(u2)) * Math.cos(2 * Math.PI * rng());
+        return mean + tailShift * stdDev + z * stdDev;
+    } else {
+        const z = Math.sqrt(-2 * Math.log(u2)) * Math.cos(2 * Math.PI * rng());
+        return mean + z * stdDev;
+    }
+};
+
+const initializeTrial = (
+    mean: number,
+    stdDev: number,
+    tailShift: number,
+    tailProbability: number,
+    samplesPerTrial: number
+): Trial => {
+    const id = generateTrialId();
+    const rng = xorshift(generateSeedFromId(id));
+
+    const { domain, buckets, bucketSize } =
+        calculateBucketsAndDomain(mean, stdDev, tailShift, tailProbability, samplesPerTrial);
+
+    const samples = Array(samplesPerTrial).fill(0).map(() =>
+        generateSample(rng, mean, stdDev, tailShift, tailProbability)
+    );
+
+    const maxValue = Math.max(...samples);
+    const sampleMean = samples.reduce((a, b) => a + b, 0) / samples.length;
+
+    samples.forEach(value => {
+        const bucketIndex = Math.floor((value - domain[0]) / bucketSize);
+        if (bucketIndex >= 0 && bucketIndex < buckets.length) {
+            buckets[bucketIndex].observed++;
+        }
+    });
+
+    return { id, buckets, maxValue, timestamp: Date.now(), sampleMean };
+};
+
+const initialSamplesPerTrial = 20;
+
 const BenchmarkTrials: React.FC = () => {
     const [mean] = useState<number>(100);
     const [stdDev, setStdDev] = useState<number>(10);
     const [tailProbability] = useState<number>(0.01);
     const [tailShift] = useState<number>(3);
-    const [samplesPerTrial, setSamplesPerTrial] = useState<number>(20);
-    const [trials, setTrials] = useState<Trial[]>([]);
-    const [selectedTrialId, setSelectedTrialId] = useState<string | null>(null);
+    const [samplesPerTrial, setSamplesPerTrial] = useState<number>(initialSamplesPerTrial);
     const [isRunning, setIsRunning] = useState<boolean>(false);
+
+    const [trials, setTrials] = useState<Trial[]>(() => [
+        initializeTrial(mean, stdDev, tailShift, tailProbability, samplesPerTrial)
+    ]);
+
+    const [selectedTrialId, setSelectedTrialId] = useState<string>(() => trials[0]?.id || '');
 
     const currentTrial = useMemo(() =>
         trials.find(t => t.id === selectedTrialId) || trials[trials.length - 1],
         [trials, selectedTrialId]
     );
 
-    // Error function implementation
-    const erf = (x: number): number => {
-        const sign = Math.sign(x);
-        x = Math.abs(x);
-        const t = 1.0 / (1.0 + 0.3275911 * x);
-        const y = 1.0 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
-        return sign * y;
-    };
-
-    const { domain, buckets, bucketSize, sigmaLines } = useMemo(() => {
-        const minX = mean - 4 * stdDev;
-        const maxX = mean + (tailShift + 2) * stdDev;
-        const domain: [number, number] = [minX, maxX];
-        const numBuckets = 30;
-        const bucketSize = (maxX - minX) / numBuckets;
-
-        const buckets: Bucket[] = Array(numBuckets).fill(0).map((_, i) => {
-            const start = minX + i * bucketSize;
-            const end = minX + (i + 1) * bucketSize;
-            const centerValue = (start + end) / 2;
-
-            const mainProb = (1 - tailProbability) * (
-                (erf((end - mean) / (Math.sqrt(2) * stdDev)) -
-                    erf((start - mean) / (Math.sqrt(2) * stdDev))) / 2
-            );
-
-            const tailProb = tailProbability * (
-                (erf((end - (mean + tailShift * stdDev)) / (Math.sqrt(2) * stdDev)) -
-                    erf((start - (mean + tailShift * stdDev)) / (Math.sqrt(2) * stdDev))) / 2
-            );
-
-            const totalProb = mainProb + tailProb;
-            const expected = totalProb * samplesPerTrial;
-
-            return {
-                start,
-                end,
-                expected,
-                observed: 0,
-                value: centerValue
-            };
-        });
-
-        const sigmaLines: SigmaLine[] = [-3, -2, -1, 1, 2, 3].map(sigma => ({
-            value: mean + sigma * stdDev,
-            label: `${sigma}σ`
-        }));
-
-        return { domain, buckets, bucketSize, sigmaLines };
-    }, [mean, stdDev, tailShift, tailProbability, samplesPerTrial]);
-
-    const generateSample = (rng: () => number): number => {
-        const u1 = rng();
-        const u2 = rng();
-        if (u1 < tailProbability) {
-            const z = Math.sqrt(-2 * Math.log(u2)) * Math.cos(2 * Math.PI * rng());
-            return mean + tailShift * stdDev + z * stdDev;
-        } else {
-            const z = Math.sqrt(-2 * Math.log(u2)) * Math.cos(2 * Math.PI * rng());
-            return mean + z * stdDev;
-        }
-    };
+    const { domain, buckets, bucketSize } =
+        calculateBucketsAndDomain(mean, stdDev, tailShift, tailProbability, samplesPerTrial);
 
     const runTrial = (): void => {
         if (!buckets) return;
         setIsRunning(true);
 
-        const trialId = Math.random().toString(36).substring(2, 15);
+        const trialId = generateTrialId();
         const rng = xorshift(generateSeedFromId(trialId));
 
         const newBuckets = buckets.map(bucket => ({ ...bucket, observed: 0 }));
-        const samples = Array(samplesPerTrial).fill(0).map(() => generateSample(rng));
+        const samples = Array(samplesPerTrial).fill(0).map(() =>
+            generateSample(rng, mean, stdDev, tailShift, tailProbability)
+        );
         const maxValue = Math.max(...samples);
         const sampleMean = samples.reduce((a, b) => a + b, 0) / samples.length;
 
@@ -165,8 +214,22 @@ const BenchmarkTrials: React.FC = () => {
 
     const reset = (): void => {
         setTrials([]);
-        setSelectedTrialId(null);
+        // TODO save / derive / hardcode an initial ID
+        setSelectedTrialId(generateId());
     };
+
+    const generateSigmaLines = (mean: number, stdDev: number): SigmaLine[] => [
+        { value: mean, label: 'μ' },
+        { value: mean - stdDev, label: '-σ' },
+        { value: mean + stdDev, label: '+σ' },
+        { value: mean - 2 * stdDev, label: '-2σ' },
+        { value: mean + 2 * stdDev, label: '+2σ' }
+    ];
+
+    const sigmaLines = useMemo(() =>
+        generateSigmaLines(mean, stdDev),
+        [mean, stdDev]
+    );
 
     const chartData = useMemo((): ChartDataItem[] => {
         return (currentTrial?.buckets || buckets).map(bucket => ({
@@ -185,7 +248,7 @@ const BenchmarkTrials: React.FC = () => {
         return [typeof value === 'number' ? value : 0, 'Observed Samples'];
     };
 
-    const formatTooltipLabel = (_label: any, payload: Array<{ payload: ChartDataItem }>): string => {
+    const formatTooltipLabel = (label: any, payload: Array<{ payload: ChartDataItem }>): string => {
         const item = payload[0]?.payload;
         if (!item) return '';
         return `Range: ${item.range}\nStandard Deviations from Mean: ${item.sigma}σ`;
