@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { ComposedChart, Bar, ReferenceLine, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { ValueType, NameType } from 'recharts/types/component/DefaultTooltipContent';
 import { generateId } from "../id";
@@ -128,10 +128,10 @@ const initializeTrial = (
     stdDev: number,
     tailShift: number,
     tailProbability: number,
-    samplesPerTrial: number
+    samplesPerTrial: number,
+    trialId: string,
 ): Trial => {
-    const id = generateTrialId();
-    const rng = xorshift(generateSeedFromId(id));
+    const rng = xorshift(generateSeedFromId(trialId));
 
     const { domain, buckets, bucketSize } =
         calculateBucketsAndDomain(mean, stdDev, tailShift, tailProbability, samplesPerTrial);
@@ -150,7 +150,7 @@ const initializeTrial = (
         }
     });
 
-    return { id, buckets, maxValue, timestamp: Date.now(), sampleMean };
+    return { id: trialId, buckets, maxValue, timestamp: Date.now(), sampleMean };
 };
 
 const initialSamplesPerTrial = 20;
@@ -163,11 +163,21 @@ const BenchmarkTrials: React.FC = () => {
     const [samplesPerTrial, setSamplesPerTrial] = useState<number>(initialSamplesPerTrial);
     const [isRunning, setIsRunning] = useState<boolean>(false);
 
-    const [trials, setTrials] = useState<Trial[]>(() => [
-        initializeTrial(mean, stdDev, tailShift, tailProbability, samplesPerTrial)
-    ]);
+    const getInitialTrialId = (): string => {
+        const hash = window.location.hash.slice(1);
+        return hash || generateId();
+    };
+
+    const [trials, setTrials] = useState<Trial[]>(() => {
+        const initialTrialId = getInitialTrialId();
+        return [initializeTrial(mean, stdDev, tailShift, tailProbability, samplesPerTrial, initialTrialId)];
+    });
 
     const [selectedTrialId, setSelectedTrialId] = useState<string>(() => trials[0]?.id || '');
+
+    useEffect(() => {
+        window.history.replaceState({}, '', `#${selectedTrialId}`);
+    }, [selectedTrialId]);
 
     const currentTrial = useMemo(() =>
         trials.find(t => t.id === selectedTrialId) || trials[trials.length - 1],
@@ -213,9 +223,9 @@ const BenchmarkTrials: React.FC = () => {
     };
 
     const reset = (): void => {
-        setTrials([]);
-        // TODO save / derive / hardcode an initial ID
-        setSelectedTrialId(generateId());
+        const newTrialId = generateId();
+        setTrials([initializeTrial(mean, stdDev, tailShift, tailProbability, samplesPerTrial, newTrialId)]);
+        setSelectedTrialId(newTrialId);
     };
 
     const generateSigmaLines = (mean: number, stdDev: number): SigmaLine[] => [
@@ -248,7 +258,7 @@ const BenchmarkTrials: React.FC = () => {
         return [typeof value === 'number' ? value : 0, 'Observed Samples'];
     };
 
-    const formatTooltipLabel = (label: any, payload: Array<{ payload: ChartDataItem }>): string => {
+    const formatTooltipLabel = (_label: any, payload: Array<{ payload: ChartDataItem }>): string => {
         const item = payload[0]?.payload;
         if (!item) return '';
         return `Range: ${item.range}\nStandard Deviations from Mean: ${item.sigma}σ`;
@@ -343,6 +353,7 @@ const BenchmarkTrials: React.FC = () => {
                             />
                             <Tooltip<ValueType, NameType>
                                 formatter={formatTooltip}
+                                // @ts-ignore I can't be bothered
                                 labelFormatter={formatTooltipLabel}
                             />
                             <Legend />
