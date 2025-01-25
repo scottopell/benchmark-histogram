@@ -1,6 +1,6 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { ComposedChart, Bar, Scatter, ReferenceLine, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { ValueType, NameType } from 'recharts/types/component/DefaultTooltipContent';
+import React, { useState, useMemo, useEffect, ReactNode } from 'react';
+import { ComposedChart, Bar, ReferenceLine, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { ValueType, NameType, Payload } from 'recharts/types/component/DefaultTooltipContent';
 import { generateId } from "../id";
 
 interface Bucket {
@@ -275,8 +275,8 @@ const BenchmarkTrials: React.FC = () => {
         return [typeof value === 'number' ? value : 0, 'Observed Samples'];
     };
 
-    const formatTooltipLabel = (_label: any, payload: Array<{ payload: ChartDataItem }>): string => {
-        const item = payload[0]?.payload;
+    const formatTooltipLabel = (_label: any, payload: Array<Payload<ValueType, NameType>>): ReactNode => {
+        const item = payload[0]?.payload as ChartDataItem;
         if (!item) return '';
         return `Range: ${item.range}\nStandard Deviations from Mean: ${item.sigma}σ`;
     };
