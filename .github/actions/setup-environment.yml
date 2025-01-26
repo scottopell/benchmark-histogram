@@ -1,0 +1,13 @@
+name: 'Setup environment'
+description: 'Setup environment'
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version-file: 'package.json'  # This reads from engines.node
+        corepack: true
+
+    - name: Install dependencies
+      run: pnpm install
