@@ -1,23 +1,10 @@
-import React, { useState, useMemo, useEffect, ReactNode } from 'react';
+import React, { useState, useMemo, useEffect, ReactNode, useCallback } from 'react';
 import { ComposedChart, Bar, ReferenceLine, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { ValueType, NameType, Payload } from 'recharts/types/component/DefaultTooltipContent';
 import { generateId } from "../id";
-
-interface Bucket {
-    start: number;
-    end: number;
-    expected: number;
-    observed: number;
-    value: number;
-}
-
-interface Trial {
-    id: string;
-    buckets: Bucket[];
-    maxValue: number;
-    timestamp: number;
-    sampleMean: number;
-}
+import { Bucket, TargetVersion, Trial } from "../types";
+import { useTrialGeneration } from '../hooks/useTrialGeneration';
+import { useVersionContext } from '../context/VersionContext';
 
 interface SigmaLine {
     value: number;
@@ -39,199 +26,91 @@ interface MaxValuePoint {
     trialId: string;
 }
 
-const xorshift = (seed: number): () => number => {
-    let state = seed;
-    return () => {
-        state ^= state << 13;
-        state ^= state >> 17;
-        state ^= state << 5;
-        return (state >>> 0) / 4294967296;
-    };
-};
-
-const generateTrialId = (): string => {
-    let id = generateId();
-    return id;
-};
-
-const generateSeedFromId = (id: string): number => {
-    let hash = 0;
-    for (let i = 0; i < id.length; i++) {
-        const char = id.charCodeAt(i);
-        hash = ((hash << 5) - hash) + char;
-        hash = hash & hash;
-    }
-    return Math.abs(hash);
-};
-
-const erf = (x: number): number => {
-    const sign = Math.sign(x);
-    x = Math.abs(x);
-    const t = 1.0 / (1.0 + 0.3275911 * x);
-    const y = 1.0 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
-    return sign * y;
-};
-
-const calculateBucketsAndDomain = (mean: number, stdDev: number, tailShift: number,
-    tailProbability: number, samplesPerTrial: number) => {
-    const minX = mean - 4 * stdDev;
-    const maxX = mean + (tailShift + 2) * stdDev;
-    const domain: [number, number] = [minX, maxX];
-    const numBuckets = 30;
-    const bucketSize = (maxX - minX) / numBuckets;
-
-    const buckets: Bucket[] = Array(numBuckets).fill(0).map((_, i) => {
-        const start = minX + i * bucketSize;
-        const end = minX + (i + 1) * bucketSize;
-        const centerValue = (start + end) / 2;
-
-        const mainProb = (1 - tailProbability) * (
-            (erf((end - mean) / (Math.sqrt(2) * stdDev)) -
-                erf((start - mean) / (Math.sqrt(2) * stdDev))) / 2
-        );
-
-        const tailProb = tailProbability * (
-            (erf((end - (mean + tailShift * stdDev)) / (Math.sqrt(2) * stdDev)) -
-                erf((start - (mean + tailShift * stdDev)) / (Math.sqrt(2) * stdDev))) / 2
-        );
-
-        const totalProb = mainProb + tailProb;
-        const expected = totalProb * samplesPerTrial;
-
-        return {
-            start,
-            end,
-            expected,
-            observed: 0,
-            value: centerValue
-        };
-    });
-
-    return { domain, buckets, bucketSize };
-};
-
-const generateSample = (
-    rng: () => number,
-    mean: number,
-    stdDev: number,
-    tailShift: number,
-    tailProbability: number
-): number => {
-    const u1 = rng();
-    const u2 = rng();
-    if (u1 < tailProbability) {
-        const z = Math.sqrt(-2 * Math.log(u2)) * Math.cos(2 * Math.PI * rng());
-        return mean + tailShift * stdDev + z * stdDev;
-    } else {
-        const z = Math.sqrt(-2 * Math.log(u2)) * Math.cos(2 * Math.PI * rng());
-        return mean + z * stdDev;
-    }
-};
-
-const initializeTrial = (
-    mean: number,
-    stdDev: number,
-    tailShift: number,
-    tailProbability: number,
-    samplesPerTrial: number,
-    trialId: string,
-): Trial => {
-    const rng = xorshift(generateSeedFromId(trialId));
-
-    const { domain, buckets, bucketSize } =
-        calculateBucketsAndDomain(mean, stdDev, tailShift, tailProbability, samplesPerTrial);
-
-    const samples = Array(samplesPerTrial).fill(0).map(() =>
-        generateSample(rng, mean, stdDev, tailShift, tailProbability)
-    );
-
-    const maxValue = Math.max(...samples);
-    const sampleMean = samples.reduce((a, b) => a + b, 0) / samples.length;
-
-    samples.forEach(value => {
-        const bucketIndex = Math.floor((value - domain[0]) / bucketSize);
-        if (bucketIndex >= 0 && bucketIndex < buckets.length) {
-            buckets[bucketIndex].observed++;
-        }
-    });
-
-    return { id: trialId, buckets, maxValue, timestamp: Date.now(), sampleMean };
-};
-
 const initialSamplesPerTrial = 20;
 
 const BenchmarkTrials: React.FC = () => {
+    const {
+        currentVersion,
+        addTrialToVersion,
+        addVersion
+    } = useVersionContext();
+
     const [mean] = useState<number>(100);
     const [stdDev, setStdDev] = useState<number>(10);
     const [tailProbability] = useState<number>(0.01);
     const [tailShift] = useState<number>(3);
     const [samplesPerTrial, setSamplesPerTrial] = useState<number>(initialSamplesPerTrial);
     const [isRunning, setIsRunning] = useState<boolean>(false);
+    const [selectedTrialId, setSelectedTrialId] = useState<string | null>(null);
+
+    const { generateTrial } = useTrialGeneration({
+        mean,
+        stdDev,
+        tailShift,
+        tailProbability,
+        samplesPerTrial,
+    });
+
+    useEffect(() => {
+        console.log('Initialization effect running', {
+            currentVersion,
+            addVersion
+        });
+
+        if (!currentVersion) {
+            const initialVersion = {
+                name: "Initial Version",
+                timestamp: Date.now(),
+                trials: []
+            };
+            console.log('Adding initial version:', initialVersion);
+            addVersion(initialVersion);
+        }
+    }, [currentVersion, addVersion]);
 
     const getInitialTrialId = (): string => {
         const hash = window.location.hash.slice(1);
         return hash || generateId();
     };
 
-    const [trials, setTrials] = useState<Trial[]>(() => {
-        const initialTrialId = getInitialTrialId();
-        return [initializeTrial(mean, stdDev, tailShift, tailProbability, samplesPerTrial, initialTrialId)];
-    });
-
-    const [selectedTrialId, setSelectedTrialId] = useState<string>(() => trials[0]?.id || '');
-
     useEffect(() => {
+        if (selectedTrialId === null) {
+            return;
+        }
         window.history.replaceState({}, '', `#${selectedTrialId}`);
     }, [selectedTrialId]);
 
-    const currentTrial = useMemo(() =>
-        trials.find(t => t.id === selectedTrialId) || trials[trials.length - 1],
-        [trials, selectedTrialId]
-    );
+    const runTrial = useCallback(async (): Promise<void> => {
+        console.log('Run trial called', { currentVersion, isRunning });
+        if (!currentVersion || isRunning) return;
 
-    const { domain, buckets, bucketSize } =
-        calculateBucketsAndDomain(mean, stdDev, tailShift, tailProbability, samplesPerTrial);
-
-    const runTrial = (): void => {
-        if (!buckets) return;
         setIsRunning(true);
+        try {
+            console.log('Generating trial for version:', currentVersion.id);
+            const newTrial = generateTrial(currentVersion.id);
+            console.log('Generated trial:', newTrial);
 
-        const trialId = generateTrialId();
-        const rng = xorshift(generateSeedFromId(trialId));
-
-        const newBuckets = buckets.map(bucket => ({ ...bucket, observed: 0 }));
-        const samples = Array(samplesPerTrial).fill(0).map(() =>
-            generateSample(rng, mean, stdDev, tailShift, tailProbability)
-        );
-        const maxValue = Math.max(...samples);
-        const sampleMean = samples.reduce((a, b) => a + b, 0) / samples.length;
-
-        samples.forEach(value => {
-            const bucketIndex = Math.floor((value - domain[0]) / bucketSize);
-            if (bucketIndex >= 0 && bucketIndex < newBuckets.length) {
-                newBuckets[bucketIndex].observed++;
+            if (!newTrial.buckets || newTrial.buckets.length === 0) {
+                throw new Error('Generated trial has no buckets');
             }
+
+            addTrialToVersion(currentVersion.id, newTrial);
+            setSelectedTrialId(newTrial.id);
+
+            // Verify the trial was added
+            console.log('Current version after adding trial:', currentVersion);
+        } catch (error) {
+            console.error('Error in runTrial:', error);
+        } finally {
+            setTimeout(() => setIsRunning(false), 500);
+        }
+    }, [currentVersion, isRunning, generateTrial, addTrialToVersion]);
+
+    const reset = useCallback((): void => {
+        addVersion({
+            name: `Version ${Date.now()}`,
         });
-
-        const trial: Trial = {
-            id: trialId,
-            buckets: newBuckets,
-            maxValue,
-            timestamp: Date.now(),
-            sampleMean
-        };
-
-        setTrials(prev => [...prev, trial]);
-        setSelectedTrialId(trialId);
-
-        setTimeout(() => setIsRunning(false), 500);
-    };
-
-    const reset = (): void => {
-        const newTrialId = generateId();
-        setTrials([initializeTrial(mean, stdDev, tailShift, tailProbability, samplesPerTrial, newTrialId)]);
-        setSelectedTrialId(newTrialId);
-    };
+    }, [addVersion]);
 
     const generateSigmaLines = (mean: number, stdDev: number): SigmaLine[] => [
         { value: mean, label: 'μ' },
@@ -246,24 +125,103 @@ const BenchmarkTrials: React.FC = () => {
         [mean, stdDev]
     );
 
+    const selectedTrial = useMemo(() => {
+        if (currentVersion === null || selectedTrialId === null) {
+            return null;
+        }
+        let maybeSelectedTrial = currentVersion.trials.find((t) => t.id == selectedTrialId);
+        if (maybeSelectedTrial === undefined) {
+            // Can occur as a state race when setting selected trial and data being generated
+            return null;
+        }
+        return maybeSelectedTrial;
+    }, [currentVersion?.trials, selectedTrialId]);
+
     const maxValuePoints = useMemo((): MaxValuePoint[] => {
-        return trials.map((trial, idx) => ({
+        if (currentVersion === null) {
+            return [];
+        }
+        return currentVersion.trials.map((trial, idx) => ({
             x: trial.maxValue,
             y: 0,
-            opacity: 0.3 + (0.7 * (idx / Math.max(1, trials.length - 1))),
+            opacity: 0.3 + (0.7 * (idx / Math.max(1, currentVersion.trials.length - 1))),
             trialId: trial.id
         }));
-    }, [trials]);
+    }, [currentVersion?.trials]);
 
-    const chartData = useMemo((): ChartDataItem[] => {
-        return (currentTrial?.buckets || buckets).map(bucket => ({
+    const [chartData, domain] = useMemo((): [ChartDataItem[], [number, number]] => {
+        console.log('Computing chart data', {
+            currentVersion,
+            selectedTrial,
+            selectedTrialId
+        });
+
+        if (!currentVersion) {
+            console.log('No current version');
+            return [[], [0, 1]];
+        }
+
+        let buckets: Bucket[] = [];
+        if (selectedTrial && selectedTrial.buckets) {
+            console.log('Using selected trial buckets');
+            buckets = selectedTrial.buckets;
+        } else if (currentVersion.trials.length > 0) {
+            console.log('Using all trials buckets');
+            buckets = currentVersion.trials.map(t => t.buckets || []).flat();
+        }
+
+        if (buckets.length === 0) {
+            console.log('No buckets available for charting');
+            return [[], [0, 1]];
+        }
+
+        console.log('Processing buckets:', buckets);
+
+        const computedDomain: [number, number] = [
+            Math.min(...buckets.map(b => b.start)),
+            Math.max(...buckets.map(b => b.end))
+        ];
+
+        const computedData = buckets.map(bucket => ({
             value: (bucket.start + bucket.end) / 2,
             expected: bucket.expected || 0,
             observed: bucket.observed || 0,
             range: `${bucket.start.toFixed(1)} - ${bucket.end.toFixed(1)}`,
             sigma: ((bucket.value - mean) / stdDev).toFixed(2)
         }));
-    }, [currentTrial, buckets, mean, stdDev]);
+
+        console.log('Computed chart data:', {
+            domain: computedDomain,
+            dataPoints: computedData.length
+        });
+
+        return [computedData, computedDomain];
+    }, [currentVersion?.trials, selectedTrial, mean, stdDev]);
+
+    // Add these useEffects near your other effects for debugging
+    useEffect(() => {
+        console.log('Current Version State:', {
+            id: currentVersion?.id,
+            trialsCount: currentVersion?.trials.length,
+            trials: currentVersion?.trials
+        });
+    }, [currentVersion]);
+
+    useEffect(() => {
+        console.log('Selected Trial State:', {
+            selectedTrialId,
+            trial: selectedTrial,
+            buckets: selectedTrial?.buckets
+        });
+    }, [selectedTrialId, selectedTrial]);
+
+    useEffect(() => {
+        console.log('Chart Data State:', {
+            chartData,
+            domain,
+            maxValuePoints
+        });
+    }, [chartData, domain, maxValuePoints]);
 
     const formatTooltip = (value: ValueType, name: NameType): [number | string, string] => {
         if (name === 'expected') {
@@ -346,51 +304,54 @@ const BenchmarkTrials: React.FC = () => {
 
                     {/* Horizontally scrolling trial cards */}
                     <div className="relative">
-                        <div
-                            className="overflow-x-auto pb-4 pt-2 px-1 hide-scrollbar"
-                            ref={(ref) => {
-                                if (ref && selectedTrialId) {
-                                    const selectedCard = ref.querySelector(`[data-trial-id="${selectedTrialId}"]`);
-                                    if (selectedCard) {
-                                        selectedCard.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+                        {currentVersion && (
+                            <div
+                                className="overflow-x-auto pb-4 pt-2 px-1 hide-scrollbar"
+                                ref={(ref) => {
+                                    if (ref && selectedTrialId) {
+                                        const selectedCard = ref.querySelector(`[data-trial-id="${selectedTrialId}"]`);
+                                        if (selectedCard) {
+                                            selectedCard.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+                                        }
                                     }
-                                }
-                            }}
-                        >
-                            <div className="flex space-x-4 px-1">
-                                {trials.map((trial) => (
-                                    <button
-                                        key={trial.id}
-                                        data-trial-id={trial.id}
-                                        onClick={() => setSelectedTrialId(trial.id)}
-                                        className={`flex-shrink-0 w-64 p-3 rounded-lg shadow-sm transition-all origin-center hover:scale-105 ${trial.id === selectedTrialId
-                                            ? 'bg-blue-50 border-2 border-blue-500 shadow-md'
-                                            : 'bg-white border border-gray-200 hover:border-blue-300'
-                                            }`}
-                                    >
-                                        <div className="flex justify-between items-center mb-2">
-                                            <div className="text-sm font-medium text-gray-900">
-                                                Trial #{trials.findIndex(t => t.id === trial.id) + 1}
+                                }}
+                            >
+
+                                <div className="flex space-x-4 px-1">
+                                    {currentVersion.trials.map((trial) => (
+                                        <button
+                                            key={trial.id}
+                                            data-trial-id={trial.id}
+                                            onClick={() => setSelectedTrialId(trial.id)}
+                                            className={`flex-shrink-0 w-64 p-3 rounded-lg shadow-sm transition-all origin-center hover:scale-105 ${trial.id === selectedTrialId
+                                                ? 'bg-blue-50 border-2 border-blue-500 shadow-md'
+                                                : 'bg-white border border-gray-200 hover:border-blue-300'
+                                                }`}
+                                        >
+                                            <div className="flex justify-between items-center mb-2">
+                                                <div className="text-sm font-medium text-gray-900">
+                                                    Trial #{currentVersion.trials.findIndex(t => t.id === trial.id) + 1}
+                                                </div>
+                                                <div className="text-xs text-gray-500">
+                                                    {trial.id}
+                                                </div>
                                             </div>
-                                            <div className="text-xs text-gray-500">
-                                                {trial.id}
+                                            <div className="space-y-1">
+                                                <div className="flex justify-between">
+                                                    <span className="text-sm text-gray-600">Max:</span>
+                                                    <span className="text-sm font-semibold">{trial.maxValue.toFixed(2)}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                    <span className="text-sm text-gray-600">Mean:</span>
+                                                    <span className="text-sm">{trial.sampleMean.toFixed(2)}</span>
+                                                </div>
                                             </div>
-                                        </div>
-                                        <div className="space-y-1">
-                                            <div className="flex justify-between">
-                                                <span className="text-sm text-gray-600">Max:</span>
-                                                <span className="text-sm font-semibold">{trial.maxValue.toFixed(2)}</span>
-                                            </div>
-                                            <div className="flex justify-between">
-                                                <span className="text-sm text-gray-600">Mean:</span>
-                                                <span className="text-sm">{trial.sampleMean.toFixed(2)}</span>
-                                            </div>
-                                        </div>
-                                    </button>
-                                ))}
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
-                        </div>
-                        {trials.length > 3 && (
+                        )}
+                        {currentVersion && currentVersion.trials.length > 3 && (
                             <div className="absolute right-0 top-2 bottom-4 w-16 bg-gradient-to-l from-white pointer-events-none" />
                         )}
                     </div>
@@ -431,7 +392,7 @@ const BenchmarkTrials: React.FC = () => {
                                 name="expected"
                             />
 
-                            {currentTrial && (
+                            {selectedTrial && (
                                 <Bar
                                     dataKey="observed"
                                     fill="#82ca9d"
