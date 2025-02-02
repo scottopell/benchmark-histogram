@@ -1,5 +1,5 @@
-import React, { createContext, useState, useContext, ReactNode, useCallback, useEffect } from 'react';
-import { generateId } from "../id";
+import React, { createContext, useState, useContext, ReactNode, useCallback, useRef, useEffect } from 'react';
+import { generateVersionId } from "../versionId";
 import { TargetVersion, Trial } from "@/types";
 
 interface VersionContextType {
@@ -23,18 +23,28 @@ export const useVersionContext = () => {
 
 export const VersionProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const [versions, setVersions] = useState<TargetVersion[]>([]);
-    const [currentVersionId, setCurrentVersionId] = useState<string | null>(null);
+    const [currentVersion, setCurrentVersionState] = useState<TargetVersion | null>(null);
+    const initialized = useRef(false);
 
-    // Derive currentVersion from versions and currentVersionId
-    const currentVersion = versions.find(v => v.id === currentVersionId) || null;
-
-    const getVersion = useCallback((versionId: string) => {
-        return versions.find(v => v.id === versionId) || null;
-    }, [versions]);
+    // Initialize with a single version if none exist
+    useEffect(() => {
+        console.log('Initialization check:', { initialized: initialized.current, versionsLength: versions.length });
+        if (!initialized.current && versions.length === 0) {
+            initialized.current = true;
+            const initialVersion: TargetVersion = {
+                id: generateVersionId(),
+                name: "Initial Version",
+                timestamp: Date.now(),
+                trials: []
+            };
+            setVersions([initialVersion]);
+            setCurrentVersionState(initialVersion);
+        }
+    }, [versions.length]);
 
     const addVersion = useCallback((versionData: Partial<TargetVersion>) => {
         const newVersion: TargetVersion = {
-            id: generateId(),
+            id: generateVersionId(),
             name: versionData.name || `Version ${versions.length + 1}`,
             timestamp: Date.now(),
             trials: [],
@@ -42,14 +52,19 @@ export const VersionProvider: React.FC<{ children: ReactNode }> = ({ children })
         };
 
         setVersions(prev => [...prev, newVersion]);
-        setCurrentVersionId(newVersion.id);
+        setCurrentVersionState(newVersion); // Automatically switch to new version
     }, [versions.length]);
 
-    const setCurrentVersion = useCallback((versionId: string) => {
-        if (versions.some(v => v.id === versionId)) {
-            setCurrentVersionId(versionId);
-        }
+    const getVersion = useCallback((versionId: string) => {
+        return versions.find(v => v.id === versionId) || null;
     }, [versions]);
+
+    const setCurrentVersion = useCallback((versionId: string) => {
+        const version = getVersion(versionId);
+        if (version) {
+            setCurrentVersionState(version);
+        }
+    }, [getVersion]);
 
     const addTrialToVersion = useCallback((versionId: string, trial: Trial) => {
         console.log('Adding trial to version', { versionId, trial });
@@ -59,28 +74,24 @@ export const VersionProvider: React.FC<{ children: ReactNode }> = ({ children })
                 if (version.id === versionId) {
                     return {
                         ...version,
-                        trials: [...version.trials, trial]
+                        trials: [...version.trials, trial],
+                        timestamp: Date.now() // Update timestamp when modified
                     };
                 }
                 return version;
             });
+
+            // Update current version state if this is the current version
+            if (currentVersion?.id === versionId) {
+                const updatedVersion = newVersions.find(v => v.id === versionId);
+                if (updatedVersion) {
+                    setCurrentVersionState(updatedVersion);
+                }
+            }
+
             return newVersions;
         });
-    }, []);
-
-    // Initialize with a version if none exists
-    useEffect(() => {
-        if (versions.length === 0) {
-            const initialVersion: TargetVersion = {
-                id: generateId(),
-                name: "Initial Version",
-                timestamp: Date.now(),
-                trials: []
-            };
-            setVersions([initialVersion]);
-            setCurrentVersionId(initialVersion.id);
-        }
-    }, []);
+    }, [currentVersion?.id]);
 
     const value = {
         versions,

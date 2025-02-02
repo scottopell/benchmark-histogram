@@ -1,10 +1,10 @@
 import React, { useState, useMemo, useEffect, ReactNode, useCallback } from 'react';
 import { ComposedChart, Bar, ReferenceLine, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { ValueType, NameType, Payload } from 'recharts/types/component/DefaultTooltipContent';
-import { generateId } from "../id";
-import { Bucket, TargetVersion, Trial } from "../types";
+import { Bucket } from "../types";
 import { useTrialGeneration } from '../hooks/useTrialGeneration';
 import { useVersionContext } from '../context/VersionContext';
+import VersionNavigation from './VersionNavigation';
 
 interface SigmaLine {
     value: number;
@@ -51,34 +51,15 @@ const BenchmarkTrials: React.FC = () => {
         samplesPerTrial,
     });
 
+    // When version id changes, auto-select the latest trial
     useEffect(() => {
-        console.log('Initialization effect running', {
-            currentVersion,
-            addVersion
-        });
-
-        if (!currentVersion) {
-            const initialVersion = {
-                name: "Initial Version",
-                timestamp: Date.now(),
-                trials: []
-            };
-            console.log('Adding initial version:', initialVersion);
-            addVersion(initialVersion);
+        if (currentVersion) {
+            const latestTrial = currentVersion.trials[currentVersion.trials.length - 1];
+            setSelectedTrialId(latestTrial?.id || null);
+        } else {
+            setSelectedTrialId(null);
         }
-    }, [currentVersion, addVersion]);
-
-    const getInitialTrialId = (): string => {
-        const hash = window.location.hash.slice(1);
-        return hash || generateId();
-    };
-
-    useEffect(() => {
-        if (selectedTrialId === null) {
-            return;
-        }
-        window.history.replaceState({}, '', `#${selectedTrialId}`);
-    }, [selectedTrialId]);
+    }, [currentVersion?.id]);
 
     const runTrial = useCallback(async (): Promise<void> => {
         console.log('Run trial called', { currentVersion, isRunning });
@@ -248,203 +229,218 @@ const BenchmarkTrials: React.FC = () => {
                 </p>
             </div>
 
-            <div className="space-y-6">
-                {/* Trial Controls and Cards */}
-                <div className="mb-6 space-y-4">
-                    <div className="flex justify-between items-center">
-                        <div className="space-x-4">
-                            <button
-                                onClick={runTrial}
-                                disabled={isRunning}
-                                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-                            >
-                                {isRunning ? 'Running Trial...' : 'Run New Trial'}
-                            </button>
-                            <button
-                                onClick={reset}
-                                className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500"
-                            >
-                                Reset All Trials
-                            </button>
-                        </div>
+            {/* Add the VersionNavigation component here */}
+            <VersionNavigation />
 
-                        <div className="flex items-center space-x-4">
-                            <div className="w-48">
-                                <label className="block text-sm font-medium mb-1" htmlFor="samplesPerTrial">
-                                    Samples: {samplesPerTrial}
-                                </label>
-                                <input
-                                    id="samplesPerTrial"
-                                    type="range"
-                                    min="5"
-                                    max="100"
-                                    step="5"
-                                    value={samplesPerTrial}
-                                    onChange={(e) => setSamplesPerTrial(Number(e.target.value))}
-                                    className="w-full"
-                                />
-                            </div>
-                            <div className="w-48">
-                                <label className="block text-sm font-medium mb-1" htmlFor="stdDev">
-                                    σ: {stdDev}
-                                </label>
-                                <input
-                                    id="stdDev"
-                                    type="range"
-                                    min="1"
-                                    max="30"
-                                    step="1"
-                                    value={stdDev}
-                                    onChange={(e) => setStdDev(Number(e.target.value))}
-                                    className="w-full"
-                                />
-                            </div>
-                        </div>
+            {/* Rest of your existing components */}
+            <div className="space-y-6">
+                <div className="w-full p-6 bg-white rounded-lg shadow">
+                    <div className="mb-6">
+                        <h2 className="text-2xl font-bold">Benchmark Trial Analysis</h2>
+                        <p className="text-gray-600 mt-2">
+                            Understand how sample size affects the reliability of your benchmark results
+                        </p>
                     </div>
 
-                    {/* Horizontally scrolling trial cards */}
-                    <div className="relative">
-                        {currentVersion && (
-                            <div
-                                className="overflow-x-auto pb-4 pt-2 px-1 hide-scrollbar"
-                                ref={(ref) => {
-                                    if (ref && selectedTrialId) {
-                                        const selectedCard = ref.querySelector(`[data-trial-id="${selectedTrialId}"]`);
-                                        if (selectedCard) {
-                                            selectedCard.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
-                                        }
-                                    }
-                                }}
-                            >
+                    <div className="space-y-6">
+                        {/* Trial Controls and Cards */}
+                        <div className="mb-6 space-y-4">
+                            <div className="flex justify-between items-center">
+                                <div className="space-x-4">
+                                    <button
+                                        onClick={runTrial}
+                                        disabled={isRunning}
+                                        className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+                                    >
+                                        {isRunning ? 'Running Trial...' : 'Run New Trial'}
+                                    </button>
+                                    <button
+                                        onClick={reset}
+                                        className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500"
+                                    >
+                                        Reset All Trials
+                                    </button>
+                                </div>
 
-                                <div className="flex space-x-4 px-1">
-                                    {currentVersion.trials.map((trial) => (
-                                        <button
-                                            key={trial.id}
-                                            data-trial-id={trial.id}
-                                            onClick={() => setSelectedTrialId(trial.id)}
-                                            className={`flex-shrink-0 w-64 p-3 rounded-lg shadow-sm transition-all origin-center hover:scale-105 ${trial.id === selectedTrialId
-                                                ? 'bg-blue-50 border-2 border-blue-500 shadow-md'
-                                                : 'bg-white border border-gray-200 hover:border-blue-300'
-                                                }`}
-                                        >
-                                            <div className="flex justify-between items-center mb-2">
-                                                <div className="text-sm font-medium text-gray-900">
-                                                    Trial #{currentVersion.trials.findIndex(t => t.id === trial.id) + 1}
-                                                </div>
-                                                <div className="text-xs text-gray-500">
-                                                    {trial.id}
-                                                </div>
-                                            </div>
-                                            <div className="space-y-1">
-                                                <div className="flex justify-between">
-                                                    <span className="text-sm text-gray-600">Max:</span>
-                                                    <span className="text-sm font-semibold">{trial.maxValue.toFixed(2)}</span>
-                                                </div>
-                                                <div className="flex justify-between">
-                                                    <span className="text-sm text-gray-600">Mean:</span>
-                                                    <span className="text-sm">{trial.sampleMean.toFixed(2)}</span>
-                                                </div>
-                                            </div>
-                                        </button>
-                                    ))}
+                                <div className="flex items-center space-x-4">
+                                    <div className="w-48">
+                                        <label className="block text-sm font-medium mb-1" htmlFor="samplesPerTrial">
+                                            Samples: {samplesPerTrial}
+                                        </label>
+                                        <input
+                                            id="samplesPerTrial"
+                                            type="range"
+                                            min="5"
+                                            max="100"
+                                            step="5"
+                                            value={samplesPerTrial}
+                                            onChange={(e) => setSamplesPerTrial(Number(e.target.value))}
+                                            className="w-full"
+                                        />
+                                    </div>
+                                    <div className="w-48">
+                                        <label className="block text-sm font-medium mb-1" htmlFor="stdDev">
+                                            σ: {stdDev}
+                                        </label>
+                                        <input
+                                            id="stdDev"
+                                            type="range"
+                                            min="1"
+                                            max="30"
+                                            step="1"
+                                            value={stdDev}
+                                            onChange={(e) => setStdDev(Number(e.target.value))}
+                                            className="w-full"
+                                        />
+                                    </div>
                                 </div>
                             </div>
-                        )}
-                        {currentVersion && currentVersion.trials.length > 3 && (
-                            <div className="absolute right-0 top-2 bottom-4 w-16 bg-gradient-to-l from-white pointer-events-none" />
-                        )}
-                    </div>
-                </div>
 
-                {/* Chart */}
-                <div className="h-96 w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                        <ComposedChart
-                            data={chartData}
-                            margin={{ top: 20, right: 30, left: 40, bottom: 20 }}
-                        >
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis
-                                dataKey="value"
-                                type="number"
-                                domain={domain}
-                                label={{ value: 'Benchmark Value', position: 'bottom', offset: 0 }}
-                            />
-                            <YAxis
-                                label={{
-                                    value: 'Count',
-                                    angle: -90,
-                                    position: 'insideLeft',
-                                    offset: 10
-                                }}
-                            />
-                            <Tooltip<ValueType, NameType>
-                                formatter={formatTooltip}
-                                labelFormatter={formatTooltipLabel}
-                            />
-                            <Legend />
+                            {/* Horizontally scrolling trial cards */}
+                            <div className="relative">
+                                {currentVersion && (
+                                    <div
+                                        className="overflow-x-auto pb-4 pt-2 px-1 hide-scrollbar"
+                                        ref={(ref) => {
+                                            if (ref && selectedTrialId) {
+                                                const selectedCard = ref.querySelector(`[data-trial-id="${selectedTrialId}"]`);
+                                                if (selectedCard) {
+                                                    selectedCard.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+                                                }
+                                            }
+                                        }}
+                                    >
 
-                            <Bar
-                                dataKey="expected"
-                                fill="#8884d8"
-                                opacity={0.5}
-                                name="expected"
-                            />
+                                        <div className="flex space-x-4 px-1">
+                                            {currentVersion.trials.map((trial) => (
+                                                <button
+                                                    key={trial.id}
+                                                    data-trial-id={trial.id}
+                                                    onClick={() => setSelectedTrialId(trial.id)}
+                                                    className={`flex-shrink-0 w-64 p-3 rounded-lg shadow-sm transition-all origin-center hover:scale-105 ${trial.id === selectedTrialId
+                                                        ? 'bg-blue-50 border-2 border-blue-500 shadow-md'
+                                                        : 'bg-white border border-gray-200 hover:border-blue-300'
+                                                        }`}
+                                                >
+                                                    <div className="flex justify-between items-center mb-2">
+                                                        <div className="text-sm font-medium text-gray-900">
+                                                            Trial #{currentVersion.trials.findIndex(t => t.id === trial.id) + 1}
+                                                        </div>
+                                                        <div className="text-xs text-gray-500">
+                                                            {trial.id}
+                                                        </div>
+                                                    </div>
+                                                    <div className="space-y-1">
+                                                        <div className="flex justify-between">
+                                                            <span className="text-sm text-gray-600">Max:</span>
+                                                            <span className="text-sm font-semibold">{trial.maxValue.toFixed(2)}</span>
+                                                        </div>
+                                                        <div className="flex justify-between">
+                                                            <span className="text-sm text-gray-600">Mean:</span>
+                                                            <span className="text-sm">{trial.sampleMean.toFixed(2)}</span>
+                                                        </div>
+                                                    </div>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                                {currentVersion && currentVersion.trials.length > 3 && (
+                                    <div className="absolute right-0 top-2 bottom-4 w-16 bg-gradient-to-l from-white pointer-events-none" />
+                                )}
+                            </div>
+                        </div>
 
-                            {selectedTrial && (
-                                <Bar
-                                    dataKey="observed"
-                                    fill="#82ca9d"
-                                    opacity={0.8}
-                                    name="observed"
-                                />
-                            )}
+                        {/* Chart */}
+                        <div className="h-96 w-full">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <ComposedChart
+                                    data={chartData}
+                                    margin={{ top: 20, right: 30, left: 40, bottom: 20 }}
+                                >
+                                    <CartesianGrid strokeDasharray="3 3" />
+                                    <XAxis
+                                        dataKey="value"
+                                        type="number"
+                                        domain={domain}
+                                        label={{ value: 'Benchmark Value', position: 'bottom', offset: 0 }}
+                                    />
+                                    <YAxis
+                                        label={{
+                                            value: 'Count',
+                                            angle: -90,
+                                            position: 'insideLeft',
+                                            offset: 10
+                                        }}
+                                    />
+                                    <Tooltip<ValueType, NameType>
+                                        formatter={formatTooltip}
+                                        labelFormatter={formatTooltipLabel}
+                                    />
+                                    <Legend />
 
-                            {/* Debug logging */}
-                            {console.log('Max Value Points:', maxValuePoints)}
+                                    <Bar
+                                        dataKey="expected"
+                                        fill="#8884d8"
+                                        opacity={0.5}
+                                        name="expected"
+                                    />
 
-                            {/* Render max value markers using ReferenceLines */}
-                            {maxValuePoints.map((point) => (
-                                <ReferenceLine
-                                    key={point.trialId}
-                                    x={point.x}
-                                    stroke="#ff4444"
-                                    strokeWidth={2}
-                                    opacity={point.opacity}
-                                    label={{
-                                        value: '×',
-                                        position: 'top',
-                                        fill: '#ff4444',
-                                        fontSize: 16,
-                                        opacity: point.opacity
-                                    }}
-                                />
-                            ))}
+                                    {selectedTrial && (
+                                        <Bar
+                                            dataKey="observed"
+                                            fill="#82ca9d"
+                                            opacity={0.8}
+                                            name="observed"
+                                        />
+                                    )}
 
-                            {sigmaLines.map(line => (
-                                <ReferenceLine
-                                    key={line.label}
-                                    x={line.value}
-                                    stroke="#666"
-                                    strokeDasharray="3 3"
-                                    label={line.label}
-                                    position="start"
-                                />
-                            ))}
-                        </ComposedChart>
-                    </ResponsiveContainer>
-                </div>
+                                    {/* Debug logging */}
+                                    {console.log('Max Value Points:', maxValuePoints)}
 
-                <div className="p-4 bg-blue-50 rounded-lg">
-                    <div className="text-sm text-gray-600">
-                        <h3 className="text-base font-semibold text-gray-900 mb-2">Reading the Chart:</h3>
-                        <ul className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-2">
-                            <li>🟪 Purple bars: Expected distribution</li>
-                            <li>🟩 Green bars: Current trial samples</li>
-                            <li>❌ Red markers: Maximum values (darker = newer)</li>
-                            <li>⋮ Gray lines: Standard deviation boundaries</li>
-                        </ul>
+                                    {/* Render max value markers using ReferenceLines */}
+                                    {maxValuePoints.map((point) => (
+                                        <ReferenceLine
+                                            key={point.trialId}
+                                            x={point.x}
+                                            stroke="#ff4444"
+                                            strokeWidth={2}
+                                            opacity={point.opacity}
+                                            label={{
+                                                value: '×',
+                                                position: 'top',
+                                                fill: '#ff4444',
+                                                fontSize: 16,
+                                                opacity: point.opacity
+                                            }}
+                                        />
+                                    ))}
+
+                                    {sigmaLines.map(line => (
+                                        <ReferenceLine
+                                            key={line.label}
+                                            x={line.value}
+                                            stroke="#666"
+                                            strokeDasharray="3 3"
+                                            label={line.label}
+                                            position="start"
+                                        />
+                                    ))}
+                                </ComposedChart>
+                            </ResponsiveContainer>
+                        </div>
+
+                        <div className="p-4 bg-blue-50 rounded-lg">
+                            <div className="text-sm text-gray-600">
+                                <h3 className="text-base font-semibold text-gray-900 mb-2">Reading the Chart:</h3>
+                                <ul className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-2">
+                                    <li>🟪 Purple bars: Expected distribution</li>
+                                    <li>🟩 Green bars: Current trial samples</li>
+                                    <li>❌ Red markers: Maximum values (darker = newer)</li>
+                                    <li>⋮ Gray lines: Standard deviation boundaries</li>
+                                </ul>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
