@@ -1,36 +1,9 @@
 import { useVersionContext } from '../context/VersionContext';
 import { parseVersionId, compareVersionIds } from '../versionId';
-
-const ChevronLeft = (props: any) => (
-    <svg
-        {...props}
-        className="w-5 h-5"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-    >
-        <polyline points="15 18 9 12 15 6" />
-    </svg>
-);
-
-const ChevronRight = (props: any) => (
-    <svg
-        {...props}
-        className="w-5 h-5"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-    >
-        <polyline points="9 18 15 12 9 6" />
-    </svg>
-);
-
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 const VersionNavigation = () => {
     const { versions, currentVersion, setCurrentVersion } = useVersionContext();
@@ -55,53 +28,56 @@ const VersionNavigation = () => {
     };
 
     return (
-        <div className="flex items-center space-x-4 mb-6 bg-white p-4 rounded-lg shadow">
-            <button
-                onClick={() => prevVersion && setCurrentVersion(prevVersion.id)}
-                disabled={!prevVersion}
-                className="p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                title={prevVersion ? `Switch to ${formatVersionDisplay(prevVersion.id)}` : 'No previous version'}
-            >
-                <ChevronLeft className="w-5 h-5" />
-            </button>
+        <Card className="mb-6">
+            <CardContent className="flex items-center space-x-4 py-4">
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => prevVersion && setCurrentVersion(prevVersion.id)}
+                    disabled={!prevVersion}
+                    title={prevVersion ? `Switch to ${formatVersionDisplay(prevVersion.id)}` : 'No previous version'}
+                >
+                    <ChevronLeft className="h-4 w-4" />
+                </Button>
 
-            <div className="flex-1">
-                <div className="relative">
-                    <select
+                <div className="flex-1 space-y-1">
+                    <Select
                         value={currentVersion?.id || ''}
-                        onChange={(e) => setCurrentVersion(e.target.value)}
-                        className="w-full p-2 pr-8 border rounded appearance-none bg-transparent cursor-pointer"
+                        onValueChange={setCurrentVersion}
                     >
-                        {sortedVersions.map((version) => (
-                            <option key={version.id} value={version.id}>
-                                {version.name} - {formatVersionDisplay(version.id)}
-                            </option>
-                        ))}
-                    </select>
-                    <div className="absolute inset-y-0 right-2 flex items-center pointer-events-none">
-                        <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                        </svg>
-                    </div>
+                        <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Select version">
+                                {currentVersion && `${currentVersion.name} - ${formatVersionDisplay(currentVersion.id)}`}
+                            </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                            {sortedVersions.map((version) => (
+                                <SelectItem key={version.id} value={version.id}>
+                                    {version.name} - {formatVersionDisplay(version.id)}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+
+                    {currentVersion && (
+                        <p className="text-sm text-muted-foreground">
+                            {currentVersion.trials.length} trials • Last updated:{' '}
+                            {new Date(currentVersion.timestamp).toLocaleDateString()}
+                        </p>
+                    )}
                 </div>
 
-                {currentVersion && (
-                    <div className="mt-1 text-sm text-gray-500">
-                        {currentVersion.trials.length} trials • Last updated:{' '}
-                        {new Date(currentVersion.timestamp).toLocaleDateString()}
-                    </div>
-                )}
-            </div>
-
-            <button
-                onClick={() => nextVersion && setCurrentVersion(nextVersion.id)}
-                disabled={!nextVersion}
-                className="p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                title={nextVersion ? `Switch to ${formatVersionDisplay(nextVersion.id)}` : 'No next version'}
-            >
-                <ChevronRight className="w-5 h-5" />
-            </button>
-        </div>
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => nextVersion && setCurrentVersion(nextVersion.id)}
+                    disabled={!nextVersion}
+                    title={nextVersion ? `Switch to ${formatVersionDisplay(nextVersion.id)}` : 'No next version'}
+                >
+                    <ChevronRight className="h-4 w-4" />
+                </Button>
+            </CardContent>
+        </Card>
     );
 };
 
