@@ -1,5 +1,5 @@
 import { useVersionContext } from '../context/VersionContext';
-import { parseVersionId, compareVersionIds } from '../versionId';
+import { parseVersionId, compareVersionIds } from '../lib/versionId';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";

@@ -1,5 +1,5 @@
 import React, { createContext, useState, useContext, ReactNode, useCallback, useRef, useEffect } from 'react';
-import { generateVersionId } from "../versionId";
+import { generateVersionId } from "../lib/versionId";
 import { TargetVersion, Trial } from "@/types";
 
 interface VersionContextType {
