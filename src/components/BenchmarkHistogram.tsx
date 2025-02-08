@@ -5,6 +5,10 @@ import { Bucket } from "../types";
 import { useTrialGeneration } from '../hooks/useTrialGeneration';
 import { useVersionContext } from '../context/VersionContext';
 import VersionNavigation from './VersionNavigation';
+import { Button } from './ui/button';
+import { Slider } from './ui/slider';
+import { Label } from './ui/label';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 
 interface SigmaLine {
     value: number;
@@ -247,35 +251,32 @@ const BenchmarkTrials: React.FC = () => {
                         <div className="mb-6 space-y-4">
                             <div className="flex justify-between items-center">
                                 <div className="space-x-4">
-                                    <button
+                                    <Button
                                         onClick={runTrial}
                                         disabled={isRunning}
-                                        className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+                                        variant="default"
                                     >
                                         {isRunning ? 'Running Trial...' : 'Run New Trial'}
-                                    </button>
-                                    <button
+                                    </Button>
+                                    <Button
                                         onClick={reset}
-                                        className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500"
+                                        variant="outline"
                                     >
                                         Reset All Trials
-                                    </button>
+                                    </Button>
+
                                 </div>
 
                                 <div className="flex items-center space-x-4">
                                     <div className="w-48">
-                                        <label className="block text-sm font-medium mb-1" htmlFor="samplesPerTrial">
-                                            Samples: {samplesPerTrial}
-                                        </label>
-                                        <input
+                                        <Label htmlFor="samplesPerTrial">Samples: {samplesPerTrial}</Label>
+                                        <Slider
                                             id="samplesPerTrial"
-                                            type="range"
-                                            min="5"
-                                            max="100"
-                                            step="5"
-                                            value={samplesPerTrial}
-                                            onChange={(e) => setSamplesPerTrial(Number(e.target.value))}
-                                            className="w-full"
+                                            min={5}
+                                            max={100}
+                                            step={5}
+                                            value={[samplesPerTrial]}
+                                            onValueChange={([value]) => setSamplesPerTrial(value)}
                                         />
                                     </div>
                                     <div className="w-48">
@@ -312,35 +313,33 @@ const BenchmarkTrials: React.FC = () => {
                                     >
 
                                         <div className="flex space-x-4 px-1">
-                                            {currentVersion.trials.map((trial) => (
-                                                <button
+                                            {currentVersion.trials.map((trial, index) => (
+                                                <Card
                                                     key={trial.id}
                                                     data-trial-id={trial.id}
                                                     onClick={() => setSelectedTrialId(trial.id)}
-                                                    className={`flex-shrink-0 w-64 p-3 rounded-lg shadow-sm transition-all origin-center hover:scale-105 ${trial.id === selectedTrialId
-                                                        ? 'bg-blue-50 border-2 border-blue-500 shadow-md'
-                                                        : 'bg-white border border-gray-200 hover:border-blue-300'
+                                                    className={`flex-shrink-0 w-64 cursor-pointer transition-all origin-center hover:scale-105 ${trial.id === selectedTrialId ? 'ring-2 ring-primary' : ''
                                                         }`}
                                                 >
-                                                    <div className="flex justify-between items-center mb-2">
-                                                        <div className="text-sm font-medium text-gray-900">
-                                                            Trial #{currentVersion.trials.findIndex(t => t.id === trial.id) + 1}
+                                                    <CardHeader className="p-4">
+                                                        <div className="flex justify-between items-center">
+                                                            <CardTitle className="text-sm">Trial #{index + 1}</CardTitle>
+                                                            <CardDescription className="text-xs">{trial.id}</CardDescription>
                                                         </div>
-                                                        <div className="text-xs text-gray-500">
-                                                            {trial.id}
+                                                    </CardHeader>
+                                                    <CardContent className="p-4 pt-0">
+                                                        <div className="space-y-1">
+                                                            <div className="flex justify-between">
+                                                                <span className="text-sm text-muted-foreground">Max:</span>
+                                                                <span className="text-sm font-semibold">{trial.maxValue.toFixed(2)}</span>
+                                                            </div>
+                                                            <div className="flex justify-between">
+                                                                <span className="text-sm text-muted-foreground">Mean:</span>
+                                                                <span className="text-sm">{trial.sampleMean.toFixed(2)}</span>
+                                                            </div>
                                                         </div>
-                                                    </div>
-                                                    <div className="space-y-1">
-                                                        <div className="flex justify-between">
-                                                            <span className="text-sm text-gray-600">Max:</span>
-                                                            <span className="text-sm font-semibold">{trial.maxValue.toFixed(2)}</span>
-                                                        </div>
-                                                        <div className="flex justify-between">
-                                                            <span className="text-sm text-gray-600">Mean:</span>
-                                                            <span className="text-sm">{trial.sampleMean.toFixed(2)}</span>
-                                                        </div>
-                                                    </div>
-                                                </button>
+                                                    </CardContent>
+                                                </Card>
                                             ))}
                                         </div>
                                     </div>
