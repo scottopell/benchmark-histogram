@@ -1,35 +1,16 @@
-// hooks/useTrialGeneration.ts
-import { useCallback } from 'react';
-import { generateId } from "../id";
+// trialGeneration.ts
+import * as id from "../lib/id";
 import { Bucket, Trial } from '@/types';
+import { generateSeedFromId, xorshift } from '@/lib/random';
+import { useCallback } from "react";
 
-interface UseTrialGenerationProps {
+interface TrialGenerationConfig {
     mean: number;
     stdDev: number;
     tailShift: number;
     tailProbability: number;
     samplesPerTrial: number;
 }
-
-const generateSeedFromId = (id: string): number => {
-    let hash = 0;
-    for (let i = 0; i < id.length; i++) {
-        const char = id.charCodeAt(i);
-        hash = ((hash << 5) - hash) + char;
-        hash = hash & hash;
-    }
-    return Math.abs(hash);
-};
-
-const xorshift = (seed: number): () => number => {
-    let state = seed;
-    return () => {
-        state ^= state << 13;
-        state ^= state >> 17;
-        state ^= state << 5;
-        return (state >>> 0) / 4294967296;
-    };
-};
 
 const erf = (x: number): number => {
     const sign = Math.sign(x);
@@ -95,49 +76,56 @@ const calculateBucketsAndDomain = (mean: number, stdDev: number, tailShift: numb
     return { domain, buckets, bucketSize };
 };
 
-export const useTrialGeneration = ({
-    mean,
-    stdDev,
-    tailShift,
-    tailProbability,
-    samplesPerTrial,
-}: UseTrialGenerationProps) => {
-    const generateTrial = useCallback((targetVersionId: string): Trial => {
-        const trialId = generateId();
-        const { domain, buckets, bucketSize } = calculateBucketsAndDomain(
-            mean,
-            stdDev,
-            tailShift,
-            tailProbability,
-            samplesPerTrial
-        );
+export function generateTrial(
+    config: TrialGenerationConfig,
+    targetVersionId: string,
+    overrides: Partial<Trial> = {}
+): Trial {
+    const { mean, stdDev, tailShift, tailProbability, samplesPerTrial } = config;
+    const trialId = overrides.id || id.generateId();
 
-        const rng = xorshift(generateSeedFromId(trialId));
-        const newBuckets = buckets.map(bucket => ({ ...bucket, observed: 0 }));
+    const { domain, buckets, bucketSize } = calculateBucketsAndDomain(
+        mean,
+        stdDev,
+        tailShift,
+        tailProbability,
+        samplesPerTrial
+    );
 
-        const samples = Array(samplesPerTrial).fill(0).map(() =>
-            generateSample(rng, mean, stdDev, tailShift, tailProbability)
-        );
+    const rng = xorshift(generateSeedFromId(trialId));
+    const newBuckets = buckets.map(bucket => ({ ...bucket, observed: 0 }));
 
-        const maxValue = Math.max(...samples);
-        const sampleMean = samples.reduce((a, b) => a + b, 0) / samples.length;
+    const samples = Array(samplesPerTrial).fill(0).map(() =>
+        generateSample(rng, mean, stdDev, tailShift, tailProbability)
+    );
 
-        samples.forEach(value => {
-            const bucketIndex = Math.floor((value - domain[0]) / bucketSize);
-            if (bucketIndex >= 0 && bucketIndex < newBuckets.length) {
-                newBuckets[bucketIndex].observed++;
-            }
-        });
+    const maxValue = Math.max(...samples);
+    const sampleMean = samples.reduce((a, b) => a + b, 0) / samples.length;
 
-        return {
-            id: trialId,
-            targetVersionId,
-            buckets: newBuckets,
-            maxValue,
-            timestamp: Date.now(),
-            sampleMean
-        };
-    }, [mean, stdDev, tailShift, tailProbability, samplesPerTrial]);
+    samples.forEach(value => {
+        const bucketIndex = Math.floor((value - domain[0]) / bucketSize);
+        if (bucketIndex >= 0 && bucketIndex < newBuckets.length) {
+            newBuckets[bucketIndex].observed++;
+        }
+    });
 
-    return { generateTrial };
+    return {
+        id: trialId,
+        targetVersionId,
+        buckets: newBuckets,
+        maxValue,
+        timestamp: overrides.timestamp || Date.now(),
+        sampleMean,
+        ...overrides
+    };
+}
+
+// Hook for use in React components
+export const useTrialGeneration = (config: TrialGenerationConfig) => {
+    const generateTrialWithConfig = useCallback(
+        (targetVersionId: string) => generateTrial(config, targetVersionId),
+        [config]
+    );
+
+    return { generateTrial: generateTrialWithConfig };
 };

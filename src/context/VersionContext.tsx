@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, ReactNode, useCallback, useRef, useEffect } from 'react';
+import React, { createContext, useState, useContext, ReactNode, useCallback } from 'react';
 import { generateVersionId } from "../lib/versionId";
 import { TargetVersion, Trial } from "@/types";
 
@@ -6,6 +6,7 @@ interface VersionContextType {
     versions: TargetVersion[];
     currentVersion: TargetVersion | null;
     addVersion: (version: Partial<TargetVersion>) => void;
+    setVersions: (versions: TargetVersion[]) => void;
     setCurrentVersion: (versionId: string) => void;
     addTrialToVersion: (versionId: string, trial: Trial) => void;
     getVersion: (versionId: string) => TargetVersion | null;
@@ -24,23 +25,6 @@ export const useVersionContext = () => {
 export const VersionProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const [versions, setVersions] = useState<TargetVersion[]>([]);
     const [currentVersion, setCurrentVersionState] = useState<TargetVersion | null>(null);
-    const initialized = useRef(false);
-
-    // Initialize with a single version if none exist
-    useEffect(() => {
-        console.log('Initialization check:', { initialized: initialized.current, versionsLength: versions.length });
-        if (!initialized.current && versions.length === 0) {
-            initialized.current = true;
-            const initialVersion: TargetVersion = {
-                id: generateVersionId(),
-                name: "Initial Version",
-                timestamp: Date.now(),
-                trials: []
-            };
-            setVersions([initialVersion]);
-            setCurrentVersionState(initialVersion);
-        }
-    }, [versions.length]);
 
     const addVersion = useCallback((versionData: Partial<TargetVersion>) => {
         const newVersion: TargetVersion = {
@@ -97,6 +81,7 @@ export const VersionProvider: React.FC<{ children: ReactNode }> = ({ children })
         versions,
         currentVersion,
         addVersion,
+        setVersions,
         setCurrentVersion,
         addTrialToVersion,
         getVersion

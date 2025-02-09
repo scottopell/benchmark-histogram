@@ -1,14 +1,13 @@
 import React, { useState, useMemo, useEffect, ReactNode, useCallback } from 'react';
 import { ComposedChart, Bar, ReferenceLine, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { ValueType, NameType, Payload } from 'recharts/types/component/DefaultTooltipContent';
-import { Bucket } from "../types";
-import { useTrialGeneration } from '../hooks/useTrialGeneration';
+import { Bucket, TargetVersion, Trial } from "../types";
 import { useVersionContext } from '../context/VersionContext';
 import VersionNavigation from './VersionNavigation';
-import { Button } from './ui/button';
-import { Slider } from './ui/slider';
-import { Label } from './ui/label';
+import { TrialControls } from "@/components/trial/TrialControls"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
+import { generateInitialState } from '@/lib/initialState';
+import { useTrialGeneration } from '@/lib/trialGeneration';
 
 interface SigmaLine {
     value: number;
@@ -32,11 +31,18 @@ interface MaxValuePoint {
 
 const initialSamplesPerTrial = 20;
 
-const BenchmarkTrials: React.FC = () => {
+interface BenchmarkHistogramProps {
+    initialSeed?: number;
+}
+
+const BenchmarkHistogram: React.FC<BenchmarkHistogramProps> = ({
+    initialSeed = 12345
+}) => {
     const {
+        versions,
         currentVersion,
-        addTrialToVersion,
-        addVersion
+        setVersions,
+        setCurrentVersion
     } = useVersionContext();
 
     const [mean] = useState<number>(100);
@@ -54,6 +60,31 @@ const BenchmarkTrials: React.FC = () => {
         tailProbability,
         samplesPerTrial,
     });
+
+    useEffect(() => {
+        // Only initialize if versions are empty
+        if (!versions || versions.length === 0) {
+            const initialVersions = generateInitialState(initialSeed);
+            setVersions(initialVersions);
+            if (initialVersions.length > 0) {
+                setCurrentVersion(initialVersions[0].id);
+            }
+        }
+    }, [initialSeed, setVersions, setCurrentVersion, versions]);
+
+    const addTrialToVersion = useCallback((versionId: string, newTrial: Trial) => {
+        if (!versions) return;
+        const updatedVersions = versions.map((version: TargetVersion) => {
+            if (version.id === versionId) {
+                return {
+                    ...version,
+                    trials: [...version.trials, newTrial]
+                };
+            }
+            return version;
+        });
+        setVersions(updatedVersions);
+    }, [versions, setVersions]);
 
     // When version id changes, auto-select the latest trial
     useEffect(() => {
@@ -92,10 +123,12 @@ const BenchmarkTrials: React.FC = () => {
     }, [currentVersion, isRunning, generateTrial, addTrialToVersion]);
 
     const reset = useCallback((): void => {
-        addVersion({
-            name: `Version ${Date.now()}`,
-        });
-    }, [addVersion]);
+        const initialVersions = generateInitialState(initialSeed);
+        setVersions(initialVersions);
+        if (initialVersions.length > 0) {
+            setCurrentVersion(initialVersions[0].id);
+        }
+    }, [initialSeed, setVersions, setCurrentVersion]);
 
     const generateSigmaLines = (mean: number, stdDev: number): SigmaLine[] => [
         { value: mean, label: 'μ' },
@@ -160,30 +193,30 @@ const BenchmarkTrials: React.FC = () => {
             return [[], [0, 1]];
         }
 
-        console.log('Processing buckets:', buckets);
-
         const computedDomain: [number, number] = [
             Math.min(...buckets.map(b => b.start)),
             Math.max(...buckets.map(b => b.end))
         ];
 
-        const computedData = buckets.map(bucket => ({
-            value: (bucket.start + bucket.end) / 2,
-            expected: bucket.expected || 0,
-            observed: bucket.observed || 0,
-            range: `${bucket.start.toFixed(1)} - ${bucket.end.toFixed(1)}`,
-            sigma: ((bucket.value - mean) / stdDev).toFixed(2)
-        }));
+        const computedData = buckets.map((bucket, index) => {
+            const centerValue = (bucket.start + bucket.end) / 2;
+            // Add a tiny fractional offset based on array position
+            // Small enough to not affect visual display but ensure unique coordinates
+            const uniqueOffset = index * 0.000001;
 
-        console.log('Computed chart data:', {
-            domain: computedDomain,
-            dataPoints: computedData.length
+            return {
+                id: `${bucket.start}-${bucket.end}-${index}-${selectedTrialId || 'all'}`,
+                value: centerValue + uniqueOffset,
+                expected: bucket.expected || 0 + uniqueOffset,
+                observed: bucket.observed || 0 + 2 * uniqueOffset,
+                range: `${bucket.start.toFixed(1)} - ${bucket.end.toFixed(1)}`,
+                sigma: ((bucket.value - mean) / stdDev).toFixed(2)
+            };
         });
 
         return [computedData, computedDomain];
     }, [currentVersion?.trials, selectedTrial, mean, stdDev]);
 
-    // Add these useEffects near your other effects for debugging
     useEffect(() => {
         console.log('Current Version State:', {
             id: currentVersion?.id,
@@ -233,69 +266,22 @@ const BenchmarkTrials: React.FC = () => {
                 </p>
             </div>
 
-            {/* Add the VersionNavigation component here */}
             <VersionNavigation />
 
-            {/* Rest of your existing components */}
             <div className="space-y-6">
                 <div className="w-full p-6 bg-white rounded-lg shadow">
-                    <div className="mb-6">
-                        <h2 className="text-2xl font-bold">Benchmark Trial Analysis</h2>
-                        <p className="text-gray-600 mt-2">
-                            Understand how sample size affects the reliability of your benchmark results
-                        </p>
-                    </div>
-
                     <div className="space-y-6">
                         {/* Trial Controls and Cards */}
-                        <div className="mb-6 space-y-4">
-                            <div className="flex justify-between items-center">
-                                <div className="space-x-4">
-                                    <Button
-                                        onClick={runTrial}
-                                        disabled={isRunning}
-                                        variant="default"
-                                    >
-                                        {isRunning ? 'Running Trial...' : 'Run New Trial'}
-                                    </Button>
-                                    <Button
-                                        onClick={reset}
-                                        variant="outline"
-                                    >
-                                        Reset All Trials
-                                    </Button>
-
-                                </div>
-
-                                <div className="flex items-center space-x-4">
-                                    <div className="w-48">
-                                        <Label htmlFor="samplesPerTrial">Samples: {samplesPerTrial}</Label>
-                                        <Slider
-                                            id="samplesPerTrial"
-                                            min={5}
-                                            max={100}
-                                            step={5}
-                                            value={[samplesPerTrial]}
-                                            onValueChange={([value]) => setSamplesPerTrial(value)}
-                                        />
-                                    </div>
-                                    <div className="w-48">
-                                        <label className="block text-sm font-medium mb-1" htmlFor="stdDev">
-                                            σ: {stdDev}
-                                        </label>
-                                        <input
-                                            id="stdDev"
-                                            type="range"
-                                            min="1"
-                                            max="30"
-                                            step="1"
-                                            value={stdDev}
-                                            onChange={(e) => setStdDev(Number(e.target.value))}
-                                            className="w-full"
-                                        />
-                                    </div>
-                                </div>
-                            </div>
+                        <div>
+                            <TrialControls
+                                onRunTrial={runTrial}
+                                onReset={reset}
+                                isRunning={isRunning}
+                                samplesPerTrial={samplesPerTrial}
+                                onSamplesChange={setSamplesPerTrial}
+                                stdDev={stdDev}
+                                onStdDevChange={setStdDev}
+                            />
 
                             {/* Horizontally scrolling trial cards */}
                             <div className="relative">
@@ -356,85 +342,93 @@ const BenchmarkTrials: React.FC = () => {
                             </CardHeader>
                             <CardContent className="h-96">
                                 <ResponsiveContainer width="100%" height="100%">
-                                    {/* Existing chart code */}
-                                    {/* Chart */}
-                                    <div className="h-96 w-full">
-                                        <ResponsiveContainer width="100%" height="100%">
-                                            <ComposedChart
-                                                data={chartData}
-                                                margin={{ top: 20, right: 30, left: 40, bottom: 20 }}
-                                            >
-                                                <CartesianGrid strokeDasharray="3 3" />
-                                                <XAxis
-                                                    dataKey="value"
-                                                    type="number"
-                                                    domain={domain}
-                                                    label={{ value: 'Benchmark Value', position: 'bottom', offset: 0 }}
-                                                />
-                                                <YAxis
-                                                    label={{
-                                                        value: 'Count',
-                                                        angle: -90,
-                                                        position: 'insideLeft',
-                                                        offset: 10
-                                                    }}
-                                                />
-                                                <Tooltip<ValueType, NameType>
-                                                    formatter={formatTooltip}
-                                                    labelFormatter={formatTooltipLabel}
-                                                />
-                                                <Legend />
+                                    <ComposedChart
+                                        data={chartData}
+                                        margin={{ top: 20, right: 30, left: 40, bottom: 20 }}
+                                    >
+                                        <CartesianGrid strokeDasharray="3 3" />
+                                        <XAxis
+                                            dataKey="value"
+                                            type="number"
+                                            domain={domain}
+                                            label={{ value: 'Benchmark Value', position: 'bottom', offset: 0 }}
+                                        />
+                                        <YAxis
+                                            yAxisId="left"
+                                            label={{
+                                                value: 'Count',
+                                                angle: -90,
+                                                position: 'insideLeft',
+                                                offset: 10
+                                            }}
+                                        />
+                                        <YAxis
+                                            yAxisId="right"
+                                            orientation="right"
+                                        />
+                                        <Tooltip<ValueType, NameType>
+                                            formatter={formatTooltip}
+                                            labelFormatter={formatTooltipLabel}
+                                        />
+                                        <Legend />
 
-                                                <Bar
-                                                    dataKey="expected"
-                                                    fill="#8884d8"
-                                                    opacity={0.5}
-                                                    name="expected"
-                                                />
+                                        <Bar
+                                            id="expected-distribution"
+                                            dataKey="expected"
+                                            fill="#8884d8"
+                                            opacity={0.5}
+                                            name="expected"
+                                            key={`expected-${selectedTrialId || 'all'}`}
+                                            yAxisId="left"
+                                        />
 
-                                                {selectedTrial && (
-                                                    <Bar
-                                                        dataKey="observed"
-                                                        fill="#82ca9d"
-                                                        opacity={0.8}
-                                                        name="observed"
-                                                    />
-                                                )}
+                                        {selectedTrial && (
+                                            <Bar
+                                                id="observed-distribution"
+                                                dataKey="observed"
+                                                fill="#82ca9d"
+                                                opacity={0.8}
+                                                name="observed"
+                                                key={`observed-${selectedTrialId}`}
+                                                yAxisId="right"
+                                                offset={1}
+                                            />
+                                        )}
 
-                                                {/* Debug logging */}
-                                                {console.log('Max Value Points:', maxValuePoints)}
+                                        {/* Debug logging */}
+                                        {console.log('Max Value Points:', maxValuePoints)}
 
-                                                {/* Render max value markers using ReferenceLines */}
-                                                {maxValuePoints.map((point) => (
-                                                    <ReferenceLine
-                                                        key={point.trialId}
-                                                        x={point.x}
-                                                        stroke="#ff4444"
-                                                        strokeWidth={2}
-                                                        opacity={point.opacity}
-                                                        label={{
-                                                            value: '×',
-                                                            position: 'top',
-                                                            fill: '#ff4444',
-                                                            fontSize: 16,
-                                                            opacity: point.opacity
-                                                        }}
-                                                    />
-                                                ))}
+                                        {/* Render max value markers using ReferenceLines */}
+                                        {maxValuePoints.map((point) => (
+                                            <ReferenceLine
+                                                key={point.trialId}
+                                                x={point.x}
+                                                yAxisId="left"
+                                                stroke="#ff4444"
+                                                strokeWidth={2}
+                                                opacity={point.opacity}
+                                                label={{
+                                                    value: '×',
+                                                    position: 'top',
+                                                    fill: '#ff4444',
+                                                    fontSize: 16,
+                                                    opacity: point.opacity
+                                                }}
+                                            />
+                                        ))}
 
-                                                {sigmaLines.map(line => (
-                                                    <ReferenceLine
-                                                        key={line.label}
-                                                        x={line.value}
-                                                        stroke="#666"
-                                                        strokeDasharray="3 3"
-                                                        label={line.label}
-                                                        position="start"
-                                                    />
-                                                ))}
-                                            </ComposedChart>
-                                        </ResponsiveContainer>
-                                    </div>
+                                        {sigmaLines.map(line => (
+                                            <ReferenceLine
+                                                key={line.label}
+                                                yAxisId="left"
+                                                x={line.value}
+                                                stroke="#666"
+                                                strokeDasharray="3 3"
+                                                label={line.label}
+                                                position="start"
+                                            />
+                                        ))}
+                                    </ComposedChart>
                                 </ResponsiveContainer>
                             </CardContent>
                         </Card>
@@ -478,8 +472,8 @@ const BenchmarkTrials: React.FC = () => {
                     </div>
                 </div>
             </div>
-        </div>
+        </div >
     );
 };
 
-export default BenchmarkTrials;
+export default BenchmarkHistogram;

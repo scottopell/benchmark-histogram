@@ -69,3 +69,7 @@ const TrialControls: React.FC<TrialControlsProps> = ({
         </div>
     );
 };
+
+export {
+    TrialControls
+}
