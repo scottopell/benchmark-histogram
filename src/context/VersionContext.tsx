@@ -1,3 +1,4 @@
+// VersionContext.tsx
 import React, { createContext, useState, useContext, ReactNode, useCallback } from 'react';
 import { generateVersionId } from "../lib/versionId";
 import { TargetVersion, Trial } from "@/types";
@@ -23,8 +24,18 @@ export const useVersionContext = () => {
 };
 
 export const VersionProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-    const [versions, setVersions] = useState<TargetVersion[]>([]);
+    const [versions, setVersionsState] = useState<TargetVersion[]>([]);
     const [currentVersion, setCurrentVersionState] = useState<TargetVersion | null>(null);
+
+    // Wrapper for setVersions that also handles currentVersion initialization
+    const setVersions = useCallback((newVersions: TargetVersion[]) => {
+        setVersionsState(newVersions);
+        if (newVersions.length > 0 && !currentVersion) {
+            setCurrentVersionState(newVersions[0]);
+        }
+    }, [currentVersion]);
+
+    // In VersionContext.tsx, update these sections:
 
     const addVersion = useCallback((versionData: Partial<TargetVersion>) => {
         const newVersion: TargetVersion = {
@@ -34,10 +45,10 @@ export const VersionProvider: React.FC<{ children: ReactNode }> = ({ children })
             trials: [],
             ...versionData
         };
-
-        setVersions(prev => [...prev, newVersion]);
-        setCurrentVersionState(newVersion); // Automatically switch to new version
+        setVersionsState(prev => [...prev, newVersion]);
+        setCurrentVersionState(newVersion);
     }, [versions.length]);
+
 
     const getVersion = useCallback((versionId: string) => {
         return versions.find(v => v.id === versionId) || null;
@@ -52,27 +63,24 @@ export const VersionProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     const addTrialToVersion = useCallback((versionId: string, trial: Trial) => {
         console.log('Adding trial to version', { versionId, trial });
-
-        setVersions(prev => {
-            const newVersions = prev.map(version => {
+        setVersionsState(prev => {
+            const newVersions = prev.map((version: TargetVersion) => {
                 if (version.id === versionId) {
                     return {
                         ...version,
                         trials: [...version.trials, trial],
-                        timestamp: Date.now() // Update timestamp when modified
+                        timestamp: Date.now()
                     };
                 }
                 return version;
             });
 
-            // Update current version state if this is the current version
             if (currentVersion?.id === versionId) {
-                const updatedVersion = newVersions.find(v => v.id === versionId);
+                const updatedVersion = newVersions.find((v: TargetVersion) => v.id === versionId);
                 if (updatedVersion) {
                     setCurrentVersionState(updatedVersion);
                 }
             }
-
             return newVersions;
         });
     }, [currentVersion?.id]);

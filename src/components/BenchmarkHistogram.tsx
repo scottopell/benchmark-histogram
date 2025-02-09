@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useEffect, ReactNode, useCallback } from 'react';
-import { ValueType, NameType, Payload } from 'recharts/types/component/DefaultTooltipContent';
+// BenchmarkHistogram.tsx
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Bucket, TargetVersion, Trial } from "../types";
 import { useVersionContext } from '../context/VersionContext';
 import VersionNavigation from './VersionNavigation';
@@ -45,11 +45,8 @@ const BenchmarkHistogram: React.FC<BenchmarkHistogramProps> = ({
         if (!versions || versions.length === 0) {
             const initialVersions = generateInitialState(initialSeed);
             setVersions(initialVersions);
-            if (initialVersions.length > 0) {
-                setCurrentVersion(initialVersions[0].id);
-            }
         }
-    }, [initialSeed, setVersions, setCurrentVersion, versions]);
+    }, [initialSeed, setVersions, versions]);
 
     const addTrialToVersion = useCallback((versionId: string, newTrial: Trial) => {
         if (!versions) return;
@@ -219,22 +216,6 @@ const BenchmarkHistogram: React.FC<BenchmarkHistogramProps> = ({
             maxValuePoints
         });
     }, [chartData, domain, maxValuePoints]);
-
-    const formatTooltip = (value: ValueType, name: NameType): [number | string, string] => {
-        if (name === 'expected') {
-            return [typeof value === 'number' ? value.toFixed(2) : 0, 'Expected Distribution'];
-        }
-        if (name === 'maxValues') {
-            return [typeof value === 'number' ? value.toFixed(2) : 0, 'Trial Maximum'];
-        }
-        return [typeof value === 'number' ? value : 0, 'Observed Samples'];
-    };
-
-    const formatTooltipLabel = (_label: any, payload: Array<Payload<ValueType, NameType>>): ReactNode => {
-        const item = payload[0]?.payload as ChartDataItem;
-        if (!item) return '';
-        return `Range: ${item.range}\nStandard Deviations from Mean: ${item.sigma}σ`;
-    };
 
     return (
         <div className="w-full p-6 bg-white rounded-lg shadow">
