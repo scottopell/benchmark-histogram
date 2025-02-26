@@ -1,6 +1,6 @@
 // BenchmarkHistogram.tsx
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { Bucket, Trial } from "../types";
+import { Bucket } from "../types";
 import { useVersionContext } from '../context/VersionContext';
 import VersionNavigation from './VersionNavigation';
 import { TrialControls } from "@/components/trial/TrialControls"
@@ -23,7 +23,6 @@ const BenchmarkHistogram: React.FC<BenchmarkHistogramProps> = ({
     versions,
     currentVersion,
     initialize,
-    setCurrentVersion,
     addTrial,
     resetApp,
     getCurrentTrials,
@@ -161,7 +160,7 @@ const BenchmarkHistogram: React.FC<BenchmarkHistogramProps> = ({
       selectedTrialId,
       hasSelectedTrial: !!selectedTrial,
       trialsCount: currentTrials.length,
-      hasBuckets: selectedTrial?.buckets?.length > 0
+      hasBuckets: selectedTrial && selectedTrial.buckets ? selectedTrial.buckets.length > 0 : false
     });
 
     if (!currentVersion) {
@@ -170,7 +169,7 @@ const BenchmarkHistogram: React.FC<BenchmarkHistogramProps> = ({
 
     // Get buckets from selected trial or all trials
     let buckets: Bucket[] = [];
-    if (selectedTrial?.buckets?.length > 0) {
+    if (selectedTrial && selectedTrial.buckets && selectedTrial.buckets.length > 0) {
       console.log('Using selected trial buckets');
       buckets = selectedTrial.buckets;
     } else if (currentTrials.length > 0) {
@@ -239,7 +238,70 @@ const BenchmarkHistogram: React.FC<BenchmarkHistogramProps> = ({
         </p>
       </div>
 
-      <VersionNavigation />
+      <div className="mb-4 p-4 bg-gray-50 rounded-lg border border-gray-200 shadow-sm">
+        <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+          <div className="w-full md:w-2/3">
+            <VersionNavigation />
+          </div>
+          <div className="flex items-center space-x-2 md:justify-end">
+            <button
+              onClick={() => {
+                const settingsPanel = document.getElementById('settings-panel');
+                if (settingsPanel) {
+                  settingsPanel.classList.toggle('hidden');
+                }
+              }}
+              className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              Settings
+            </button>
+            <button
+              onClick={reset}
+              className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500"
+            >
+              Reset Application
+            </button>
+          </div>
+        </div>
+      </div>
+      
+      <div id="settings-panel" className="mb-6 p-4 bg-gray-100 rounded-lg shadow-inner hidden">
+        <h3 className="text-lg font-medium mb-4">Application Settings</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <label className="block text-sm font-medium mb-1" htmlFor="samplesPerTrial">
+              Samples per Trial: {samplesPerTrial}
+            </label>
+            <input
+              id="samplesPerTrial"
+              type="range"
+              min="5"
+              max="100"
+              step="5"
+              value={samplesPerTrial}
+              onChange={(e) => setSamplesPerTrial(Number(e.target.value))}
+              className="w-full"
+            />
+            <p className="text-sm text-gray-500 mt-1">Controls the number of data points in each trial</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1" htmlFor="stdDev">
+              Standard Deviation (σ): {stdDev}
+            </label>
+            <input
+              id="stdDev"
+              type="range"
+              min="1"
+              max="30"
+              step="1"
+              value={stdDev}
+              onChange={(e) => setStdDev(Number(e.target.value))}
+              className="w-full"
+            />
+            <p className="text-sm text-gray-500 mt-1">Controls the spread of the distribution</p>
+          </div>
+        </div>
+      </div>
 
       <div className="space-y-6">
         <div className="w-full p-6 bg-white rounded-lg shadow">
@@ -248,12 +310,7 @@ const BenchmarkHistogram: React.FC<BenchmarkHistogramProps> = ({
             <div>
               <TrialControls
                 onRunTrial={runTrial}
-                onReset={reset}
                 isRunning={isRunning}
-                samplesPerTrial={samplesPerTrial}
-                onSamplesChange={setSamplesPerTrial}
-                stdDev={stdDev}
-                onStdDevChange={setStdDev}
               />
 
               {currentVersion && (

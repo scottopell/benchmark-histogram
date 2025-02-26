@@ -2,7 +2,6 @@ import { useVersionContext } from '../context/VersionContext';
 import { parseVersionId, compareVersionIds } from '../lib/versionId';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 const VersionNavigation = () => {
@@ -33,8 +32,7 @@ const VersionNavigation = () => {
   };
 
   return (
-    <Card className="mb-6">
-      <CardContent className="flex items-center space-x-4 py-4">
+    <div className="flex items-center space-x-4 py-2 w-full">
         <Button
           variant="ghost"
           size="icon"
@@ -81,8 +79,7 @@ const VersionNavigation = () => {
         >
           <ChevronRight className="h-4 w-4" />
         </Button>
-      </CardContent>
-    </Card>
+      </div>
   );
 };
 

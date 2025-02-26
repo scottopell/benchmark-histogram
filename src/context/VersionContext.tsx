@@ -3,13 +3,7 @@ import React, { createContext, useReducer, useContext, ReactNode, useCallback } 
 import { generateVersionId } from "../lib/versionId";
 import { TargetVersion, Trial } from "@/types";
 
-// Define action types with literal type for better type safety
-type ActionType = 
-  | 'INITIALIZE' 
-  | 'SET_CURRENT_VERSION' 
-  | 'ADD_VERSION' 
-  | 'ADD_TRIAL'
-  | 'RESET_APP';
+// Action types are defined through the union type below
 
 // Define each action with its specific payload structure
 interface InitializeAction {
