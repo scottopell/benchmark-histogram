@@ -91,7 +91,8 @@ export function generateTrial(
         throw new Error('Invalid trial generation configuration');
     }
     
-    const trialId = overrides.id || id.generateId();
+    // Always use the word-based ID generator for consistent, readable IDs
+    const trialId = id.generateId();
     
     console.log('Generating trial with parameters:', {
         mean, stdDev, tailShift, tailProbability, samplesPerTrial, 

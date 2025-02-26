@@ -34,14 +34,14 @@ export function generateInitialState(seed: number = 12345): TargetVersion[] {
 
         // Generate trials for this version
         for (let j = 0; j < trialsPerVersion; j++) {
-            const trialId = `trial-${random.rangeInt(10000, 99999)}`;
-            const timestamp = baseTimestamp + (i * 3600000) + (j * 1000); // Space versions 1h apart, trials 1s apart
+            // Generate timestamp (space versions 1h apart, trials 1s apart)
+            const timestamp = baseTimestamp + (i * 3600000) + (j * 1000);
 
+            // Use the triple word ID generator (no need to specify ID as it's generated in generateTrial)
             const trial = generateTrial(versionConfig, versionId, {
-                id: trialId,
                 timestamp
             });
-            
+
             // Verify the trial has valid buckets
             if (!trial.buckets || trial.buckets.length === 0) {
                 console.error('Generated initial trial missing buckets:', trial);
