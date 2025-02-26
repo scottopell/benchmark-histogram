@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui
 interface TrialGalleryProps {
   trials: Trial[];
   selectedTrialId: string | null;
-  onTrialSelect: (trialId: string) => void;
+  onTrialSelect: (trialId: string | null) => void;
 }
 
 export const TrialGallery: React.FC<TrialGalleryProps> = ({
@@ -23,8 +23,17 @@ export const TrialGallery: React.FC<TrialGalleryProps> = ({
   }, [trials, selectedTrialId]);
 
   const handleTrialSelect = (trialId: string) => {
-    console.log('🔍 Selecting trial:', trialId);
-    onTrialSelect(trialId);
+    console.log('🔍 Trial clicked:', trialId, 'Currently selected:', selectedTrialId);
+
+    // If the clicked trial is already selected, deselect it (showing all trials)
+    if (trialId === selectedTrialId) {
+      console.log('Deselecting trial to show all data');
+      onTrialSelect(null);
+    } else {
+      // Otherwise select the clicked trial
+      console.log('Selecting trial:', trialId);
+      onTrialSelect(trialId);
+    }
   };
 
   // Empty state
@@ -56,12 +65,21 @@ export const TrialGallery: React.FC<TrialGalleryProps> = ({
               data-trial-id={trial.id}
               onClick={() => handleTrialSelect(trial.id)}
               className={`flex-shrink-0 w-64 cursor-pointer transition-all origin-center hover:scale-105 ${
-                trial.id === selectedTrialId ? 'ring-2 ring-primary shadow-lg' : 'shadow'
+                trial.id === selectedTrialId
+                  ? 'ring-2 ring-blue-500 shadow-lg bg-blue-50'
+                  : 'shadow hover:shadow-md'
               }`}
             >
               <CardHeader className="p-4">
                 <div className="flex justify-between items-center">
-                  <CardTitle className="text-sm">Trial #{index + 1}</CardTitle>
+                  <CardTitle className="text-sm">
+                    Trial #{index + 1}
+                    {trial.id === selectedTrialId && (
+                      <span className="ml-2 inline-block px-2 py-0.5 text-xs bg-blue-100 text-blue-800 rounded-full">
+                        Selected
+                      </span>
+                    )}
+                  </CardTitle>
                   <CardDescription className="text-xs">{new Date(trial.timestamp).toLocaleTimeString()}</CardDescription>
                 </div>
               </CardHeader>

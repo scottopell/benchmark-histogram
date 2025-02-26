@@ -57,16 +57,10 @@ const BenchmarkHistogram: React.FC<BenchmarkHistogramProps> = ({
     }
   }, [initialSeed, initialize, versions]);
 
-  // Auto-select the latest trial when current version changes
+  // When version changes, deselect any selected trial to show all trials
   useEffect(() => {
-    if (currentVersion && currentVersion.trials.length > 0) {
-      const latestTrial = currentVersion.trials[currentVersion.trials.length - 1];
-      console.log('Auto-selecting latest trial:', latestTrial?.id);
-      setSelectedTrialId(latestTrial?.id || null);
-    } else {
-      console.log('No current version or no trials, clearing selected trial ID');
-      setSelectedTrialId(null);
-    }
+    console.log('Version changed, showing all trials by default');
+    setSelectedTrialId(null);
   }, [currentVersion]);
 
   // Function to run a new trial
@@ -77,7 +71,7 @@ const BenchmarkHistogram: React.FC<BenchmarkHistogramProps> = ({
     setIsRunning(true);
     try {
       console.log('Generating trial for version:', currentVersion.id);
-      
+
       // Generate a new trial
       const newTrial = generateTrial(currentVersion.id);
       console.log('Generated trial:', newTrial.id);
@@ -89,8 +83,8 @@ const BenchmarkHistogram: React.FC<BenchmarkHistogramProps> = ({
 
       // Add the trial to the version using context action
       addTrial(currentVersion.id, newTrial);
-      
-      // Set the selected trial ID to show the new trial
+
+      // Set the selected trial ID to show only the new trial
       console.log('Setting selected trial ID to:', newTrial.id);
       setSelectedTrialId(newTrial.id);
     } catch (error) {
@@ -117,13 +111,13 @@ const BenchmarkHistogram: React.FC<BenchmarkHistogramProps> = ({
   ], []);
 
   // Memoized sigma lines
-  const sigmaLines = useMemo(() => 
+  const sigmaLines = useMemo(() =>
     generateSigmaLines(mean, stdDev),
     [mean, stdDev, generateSigmaLines]
   );
 
   // Get current trials
-  const currentTrials = useMemo(() => 
+  const currentTrials = useMemo(() =>
     getCurrentTrials(),
     [getCurrentTrials]
   );
@@ -131,21 +125,36 @@ const BenchmarkHistogram: React.FC<BenchmarkHistogramProps> = ({
   // Get currently selected trial
   const selectedTrial = useMemo(() => {
     if (!selectedTrialId) return null;
-    
+
     const trial = getTrialById(selectedTrialId);
     console.log('Selected trial lookup:', {
       id: selectedTrialId,
       found: !!trial,
       versionId: trial?.targetVersionId
     });
-    
+
     return trial;
   }, [selectedTrialId, getTrialById]);
+
+  // Helper text based on trial selection
+  const displayMode = useMemo(() => {
+    if (selectedTrialId) {
+      const trialIndex = currentTrials.findIndex(t => t.id === selectedTrialId);
+      return {
+        text: `Showing data for Trial #${trialIndex + 1}`,
+        type: 'single'
+      };
+    }
+    return {
+      text: `Showing aggregated data for all ${currentTrials.length} trials`,
+      type: 'all'
+    };
+  }, [selectedTrialId, currentTrials]);
 
   // Generate max value points for the chart
   const maxValuePoints = useMemo((): MaxValuePoint[] => {
     if (!currentTrials.length) return [];
-    
+
     return currentTrials.map((trial, idx) => ({
       x: trial.maxValue,
       y: 0,
@@ -174,10 +183,36 @@ const BenchmarkHistogram: React.FC<BenchmarkHistogramProps> = ({
       buckets = selectedTrial.buckets;
     } else if (currentTrials.length > 0) {
       console.log('Using all trials buckets');
-      buckets = currentTrials
+
+      // We need to aggregate buckets from multiple trials
+      // First, get all buckets from all trials
+      const allBuckets = currentTrials
         .filter(t => t.buckets && t.buckets.length > 0)
         .map(t => t.buckets)
         .flat();
+
+      // Create a map to group buckets by their range
+      const bucketMap = new Map<string, Bucket>();
+
+      // Process each bucket
+      allBuckets.forEach(bucket => {
+        const key = `${bucket.start}-${bucket.end}`;
+
+        if (bucketMap.has(key)) {
+          // If we already have a bucket with this range, add to the observed count
+          const existingBucket = bucketMap.get(key)!;
+          existingBucket.observed += bucket.observed;
+          // Keep the expected count the same (it's the same for all trials)
+        } else {
+          // Add new bucket to the map
+          bucketMap.set(key, { ...bucket });
+        }
+      });
+
+      // Convert map back to array
+      buckets = Array.from(bucketMap.values());
+
+      console.log('Aggregated buckets count:', buckets.length);
     }
 
     if (buckets.length === 0) {
@@ -264,7 +299,7 @@ const BenchmarkHistogram: React.FC<BenchmarkHistogramProps> = ({
           </div>
         </div>
       </div>
-      
+
       <div id="settings-panel" className="mb-6 p-4 bg-gray-100 rounded-lg shadow-inner hidden">
         <h3 className="text-lg font-medium mb-4">Application Settings</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -322,13 +357,25 @@ const BenchmarkHistogram: React.FC<BenchmarkHistogramProps> = ({
               )}
             </div>
 
-            <DistributionChart
-              chartData={chartData}
-              domain={domain}
-              maxValuePoints={maxValuePoints}
-              sigmaLines={sigmaLines}
-              selectedTrialId={selectedTrialId}
-            />
+            <div>
+              <div className="flex justify-between items-center mb-2">
+                <h3 className="text-lg font-medium">Distribution Analysis</h3>
+                <div className={`px-3 py-1 rounded-full text-sm ${
+                  displayMode.type === 'single'
+                    ? 'bg-blue-100 text-blue-800'
+                    : 'bg-gray-100 text-gray-800'
+                }`}>
+                  {displayMode.text}
+                </div>
+              </div>
+              <DistributionChart
+                chartData={chartData}
+                domain={domain}
+                maxValuePoints={maxValuePoints}
+                sigmaLines={sigmaLines}
+                selectedTrialId={selectedTrialId}
+              />
+            </div>
 
             <DistributionChartGuide />
           </div>

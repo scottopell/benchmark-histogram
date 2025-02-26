@@ -16,6 +16,7 @@ export interface MaxValuePoint {
     y: number;
     opacity: number;
     trialId: string;
+    strokeWidth?: number;
 }
 
 export interface SigmaLine {
@@ -38,6 +39,12 @@ export const DistributionChart: React.FC<DistributionChartProps> = ({
     sigmaLines,
     selectedTrialId,
 }) => {
+    // Highlight selected trial's max value point
+    const highlightedPoints = maxValuePoints.map(point => ({
+        ...point,
+        opacity: point.trialId === selectedTrialId ? 1 : point.opacity,
+        strokeWidth: point.trialId === selectedTrialId ? 3 : 2
+    }));
     const formatTooltip = (value: ValueType, name: NameType): [number | string, string] => {
         if (name === 'expected') {
             return [typeof value === 'number' ? value.toFixed(2) : '0', 'Expected Distribution'];
@@ -102,32 +109,30 @@ export const DistributionChart: React.FC<DistributionChartProps> = ({
                                 yAxisId="left"
                             />
 
-                            {selectedTrialId && (
-                                <Bar
-                                    id="observed-distribution"
-                                    dataKey="observed"
-                                    fill="#82ca9d"
-                                    opacity={0.8}
-                                    name="observed"
-                                    key={`observed-${selectedTrialId}`}
-                                    yAxisId="right"
-                                    offset={1}
-                                />
-                            )}
+                            <Bar
+                                id="observed-distribution"
+                                dataKey="observed"
+                                fill="#82ca9d"
+                                opacity={0.8}
+                                name="observed"
+                                key={`observed-${selectedTrialId || 'all'}`}
+                                yAxisId="right"
+                                offset={1}
+                            />
 
-                            {maxValuePoints.map((point) => (
+                            {highlightedPoints.map((point) => (
                                 <ReferenceLine
                                     key={point.trialId}
                                     x={point.x}
                                     yAxisId="left"
-                                    stroke="#ff4444"
-                                    strokeWidth={2}
+                                    stroke={point.trialId === selectedTrialId ? '#ff0000' : '#ff4444'}
+                                    strokeWidth={point.strokeWidth}
                                     opacity={point.opacity}
                                     label={{
                                         value: '×',
                                         position: 'top',
-                                        fill: '#ff4444',
-                                        fontSize: 16,
+                                        fill: point.trialId === selectedTrialId ? '#ff0000' : '#ff4444',
+                                        fontSize: point.trialId === selectedTrialId ? 18 : 16,
                                         opacity: point.opacity
                                     }}
                                 />
