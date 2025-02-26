@@ -41,6 +41,11 @@ export function generateInitialState(seed: number = 12345): TargetVersion[] {
                 id: trialId,
                 timestamp
             });
+            
+            // Verify the trial has valid buckets
+            if (!trial.buckets || trial.buckets.length === 0) {
+                console.error('Generated initial trial missing buckets:', trial);
+            }
 
             trials.push(trial);
         }

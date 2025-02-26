@@ -82,7 +82,21 @@ export function generateTrial(
     overrides: Partial<Trial> = {}
 ): Trial {
     const { mean, stdDev, tailShift, tailProbability, samplesPerTrial } = config;
+    
+    // Validate required parameters
+    if (mean === undefined || stdDev === undefined || 
+        tailShift === undefined || tailProbability === undefined || 
+        samplesPerTrial === undefined) {
+        console.error('Missing required configuration in generateTrial:', config);
+        throw new Error('Invalid trial generation configuration');
+    }
+    
     const trialId = overrides.id || id.generateId();
+    
+    console.log('Generating trial with parameters:', {
+        mean, stdDev, tailShift, tailProbability, samplesPerTrial, 
+        targetVersionId, trialId
+    });
 
     const { domain, buckets, bucketSize } = calculateBucketsAndDomain(
         mean,
@@ -123,7 +137,21 @@ export function generateTrial(
 // Hook for use in React components
 export const useTrialGeneration = (config: TrialGenerationConfig) => {
     const generateTrialWithConfig = useCallback(
-        (targetVersionId: string) => generateTrial(config, targetVersionId),
+        (targetVersionId: string) => {
+            console.log('Generating trial with config:', { config, targetVersionId });
+            
+            // Check if we have all required fields before passing to generateTrial
+            const { mean, stdDev, tailShift, tailProbability, samplesPerTrial } = config;
+            
+            if (mean === undefined || stdDev === undefined || 
+                tailShift === undefined || tailProbability === undefined || 
+                samplesPerTrial === undefined) {
+                console.error('Missing required configuration values:', config);
+                throw new Error('Invalid trial generation configuration');
+            }
+            
+            return generateTrial(config, targetVersionId);
+        },
         [config]
     );
 
