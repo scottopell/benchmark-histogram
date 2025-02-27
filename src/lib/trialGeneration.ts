@@ -124,15 +124,21 @@ export function generateTrial(
         }
     });
 
-    return {
+    // Return the trial data (using the old targetVersionId field for backwards compatibility)
+    const trial: any = {
         id: trialId,
-        targetVersionId,
+        runId: overrides.runId || '',
         buckets: newBuckets,
         maxValue,
         timestamp: overrides.timestamp || Date.now(),
         sampleMean,
-        ...overrides
     };
+    
+    // For backwards compatibility
+    trial.targetVersionId = targetVersionId;
+    
+    // Add any additional overrides
+    return {...trial, ...overrides};
 }
 
 // Hook for use in React components

@@ -153,43 +153,6 @@ export const DistributionChart: React.FC<DistributionChartProps> = ({
                     </ResponsiveContainer>
                 </CardContent>
             </Card>
-
-            <Card className="mt-6">
-                <CardHeader>
-                    <CardTitle className="text-base">Reading the Chart</CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="flex items-center gap-2">
-                            <div className="w-4 h-4 bg-[#8884d8] opacity-50 rounded" />
-                            <span className="text-sm">Expected distribution</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <div className="w-4 h-4 bg-[#82ca9d] opacity-80 rounded" />
-                            <span className="text-sm">Current trial samples</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <div className="w-4 h-4 flex items-center justify-center text-red-500 font-bold">×</div>
-                            <span className="text-sm">Maximum values (darker = newer)</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <div className="w-4 h-4 flex items-center justify-center">
-                                <div className="h-full w-0 border-l border-dashed border-gray-600"></div>
-                            </div>
-                            <span className="text-sm">Standard deviation boundaries (σ)</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <div className="w-4 h-4 flex items-center justify-center font-serif italic">μ</div>
-                            <span className="text-sm">Mean value</span>
-                        </div>
-                        <div className="md:col-span-2">
-                            <p className="text-sm text-muted-foreground mt-2">
-                                The darker the maximum value marker (×), the more recent the trial. This helps track how maximum values evolve across trials.
-                            </p>
-                        </div>
-                    </div>
-                </CardContent>
-            </Card>
         </>
     );
 };
